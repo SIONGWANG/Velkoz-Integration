@@ -1,0 +1,5 @@
+change_id: v1.3.7-csv-selector
+status: in-progress
+created: 2026-06-02
+description: CSV 历史文件选择器 — 支持跨天查看历史验收记录
+version: v1.3.7

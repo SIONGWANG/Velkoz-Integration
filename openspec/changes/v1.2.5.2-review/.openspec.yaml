@@ -1,0 +1,7 @@
+change_id: v1.2.5.2-review
+title: V1.2.5.2 质检记录保存可靠性与前端状态联动修复
+status: completed
+created: 2026-05-26
+description: |
+  对质检记录保存可靠性、前端状态联动正确性、用户体感做深层审查，
+  输出 openspec 报告，执行 6 项 P0 修复。
