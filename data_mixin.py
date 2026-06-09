@@ -505,11 +505,14 @@ class DataMixin:
         tags_str = "; ".join(current_tags) if current_tags else ""
 
         # 确保标签不丢失：若用户已选标签但备注为空，将标签写入备注栏
+        # 注意：_sync_tags_to_notes 已将标签同步到备注，此处需避免重复拼接
         feedback_val = feedback if feedback else ""
         if not feedback_val and tags_str:
             feedback_val = tags_str
         elif feedback_val and tags_str:
-            feedback_val = f"{tags_str}; {feedback_val}"
+            # 检查备注是否已包含标签内容（避免重复拼接）
+            if not feedback_val.startswith(tags_str):
+                feedback_val = f"{tags_str}; {feedback_val}"
 
         record = {
             "姓名": group.get('user_name', '未知'),
