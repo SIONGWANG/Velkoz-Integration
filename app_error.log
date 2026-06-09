@@ -11,3 +11,53 @@
 2026-05-26 14:43:55,236 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
 2026-05-26 14:43:55,886 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
 2026-05-26 14:43:56,550 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-06-06 17:03:44,223 [WARNING] 常用标签 pills 渲染失败
+Traceback (most recent call last):
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\settings_mixin.py", line 294, in render_tag_selector
+    freq_selected = st.pills(
+                    ^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\runtime\metrics_util.py", line 698, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\widgets\button_group.py", line 580, in pills
+    return self._internal_button_group(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\runtime\metrics_util.py", line 698, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\widgets\button_group.py", line 1024, in _internal_button_group
+    result: RegisterWidgetResult[Any] = self._button_group(
+                                        ^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\widgets\button_group.py", line 1132, in _button_group
+    element_id = compute_and_register_element_id(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 264, in compute_and_register_element_id
+    _register_element_id(ctx, element_type, element_id)
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 144, in _register_element_id
+    raise StreamlitDuplicateElementKey(user_key)
+streamlit.errors.StreamlitDuplicateElementKey: There are multiple elements with the same `key='freq_pills_16051126'`. To fix this, please make sure that the `key` argument is unique for each element you create.
+2026-06-06 17:03:44,226 [WARNING] 全部标签 pills 渲染失败
+Traceback (most recent call last):
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\settings_mixin.py", line 312, in render_tag_selector
+    other_selected = st.pills(
+                     ^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\runtime\metrics_util.py", line 698, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\widgets\button_group.py", line 580, in pills
+    return self._internal_button_group(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\runtime\metrics_util.py", line 698, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\widgets\button_group.py", line 1024, in _internal_button_group
+    result: RegisterWidgetResult[Any] = self._button_group(
+                                        ^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\widgets\button_group.py", line 1132, in _button_group
+    element_id = compute_and_register_element_id(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 264, in compute_and_register_element_id
+    _register_element_id(ctx, element_type, element_id)
+  File "D:\审视之眼Pro\Vel'Koz\Vekz Intg\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 144, in _register_element_id
+    raise StreamlitDuplicateElementKey(user_key)
+streamlit.errors.StreamlitDuplicateElementKey: There are multiple elements with the same `key='other_pills_16051126'`. To fix this, please make sure that the `key` argument is unique for each element you create.
