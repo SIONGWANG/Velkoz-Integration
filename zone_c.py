@@ -171,7 +171,12 @@ class ZoneCMixin:
         if status_sel:
             st.session_state[prev_status_key] = status_sel
 
-        # 6. 备注 + 保存/提交
+        # 6. 快捷标签（紧贴最终结果，减少滚动）
+        st.write("")
+        st.caption("🏷️ 快捷标签")
+        self.render_tag_selector(group)
+
+        # 7. 备注 + 保存/提交
         with st.form(key=f"form_submit_{group['id']}", clear_on_submit=False):
             feedback_text = st.text_area("备注", height=68, placeholder="在此输入备注 (选填)", key=f"feedback_{group['id']}")
             # 检测用户是否手动编辑了备注（与标签同步后的内容不同）
@@ -195,11 +200,6 @@ class ZoneCMixin:
                     is_submit = st.form_submit_button("🚀 提交并下一条（抽检）", type="primary", use_container_width=True)
                 else:
                     is_submit = st.form_submit_button("🚀 提交并下一条", type="primary", use_container_width=True)
-
-        # 7. 快捷标签
-        st.write("")
-        st.caption("🏷️ 快捷标签")
-        self.render_tag_selector(group)
 
         # 8. 标签管理（折叠，最底部）
         st.divider()
