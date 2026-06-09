@@ -78,6 +78,14 @@ class DataMixin:
         if not df.empty and '图片ID' in df.columns:
             df['图片ID'] = df['图片ID'].astype(str).str.strip()
             df = df.drop_duplicates(subset=['图片ID'], keep='last').reset_index(drop=True)
+        # 列名归一化：旧版 CSV 可能用 "错误反馈" 而非 "备注"
+        if not df.empty:
+            if '备注' not in df.columns and '错误反馈' in df.columns:
+                df['备注'] = df['错误反馈']
+            if '备注' not in df.columns:
+                df['备注'] = ''
+            if '标签' not in df.columns:
+                df['标签'] = ''
         st.session_state[cache_key] = df.copy()
         st.session_state[f"_df_lookup_{csv_file}"] = self._build_lookup(df)
         return df.copy()
@@ -174,8 +182,15 @@ class DataMixin:
         current_hash = hashlib.md5(current_notes.encode()).hexdigest()
         last_hash = st.session_state.get(content_hash_key, "")
 
-        # 如果用户手动编辑过，或者内容哈希变化，则禁止同步
-        if st.session_state.get(manual_edit_key, False) or (last_hash and current_hash != last_hash):
+        # 如果用户手动编辑过，则禁止同步
+        if st.session_state.get(manual_edit_key, False):
+            st.session_state[last_tags_key] = tags_text
+            st.session_state[content_hash_key] = hashlib.md5(current_notes.encode()).hexdigest()
+            return
+
+        # 内容哈希变化检测：仅当备注非空且哈希不匹配时才阻止同步
+        # 备注为空时允许同步（用户清空备注后选择新标签应生效）
+        if last_hash and current_hash != last_hash and current_notes.strip():
             st.session_state[last_tags_key] = tags_text
             st.session_state[content_hash_key] = hashlib.md5(current_notes.encode()).hexdigest()
             return
@@ -270,8 +285,12 @@ class DataMixin:
         st.session_state[last_tags_key] = tags_text
 
         restored_notes = st.session_state.get(f"feedback_{current_id}", "").strip()
-        if restored_notes and restored_notes != tags_text.strip():
+        # 只有当备注确实与标签不同（用户手动输入了额外内容）时才标记为手动编辑
+        # 如果备注为空或完全等于标签文本，不标记（允许后续标签同步）
+        if restored_notes and tags_text.strip() and restored_notes != tags_text.strip():
             st.session_state[f"_manual_edit_{current_id}"] = True
+        elif not restored_notes:
+            st.session_state[f"_manual_edit_{current_id}"] = False
 
         # 记录初始状态用于撤销检测
         loaded_status = st.session_state.get('status_pills')
@@ -485,13 +504,20 @@ class DataMixin:
         current_tags = st.session_state.selected_tags.get(str(group['id']), [])
         tags_str = "; ".join(current_tags) if current_tags else ""
 
+        # 确保标签不丢失：若用户已选标签但备注为空，将标签写入备注栏
+        feedback_val = feedback if feedback else ""
+        if not feedback_val and tags_str:
+            feedback_val = tags_str
+        elif feedback_val and tags_str:
+            feedback_val = f"{tags_str}; {feedback_val}"
+
         record = {
             "姓名": group.get('user_name', '未知'),
             "图片ID": str(group['id']),
             "一级": l1 if l1 else "",
             "二级": l2 if l2 else "",
             "结果": status,
-            "备注": feedback if feedback else "",
+            "备注": feedback_val,
             "标签": tags_str,
             "错误截图": img_paths_str,
             "质检时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
