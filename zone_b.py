@@ -283,7 +283,7 @@ class ZoneBMixin:
             c_dl, c_open = st.columns(2)
             with c_dl:
                 with open(excel_path, "rb") as f:
-                    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True)
+                    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True, key="dl_excel_completion")
             with c_open:
                 if st.button("📂 打开文件夹", use_container_width=True, key="comp_open_excel_dir"):
                     self.open_in_system(export_dir)

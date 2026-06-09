@@ -422,7 +422,7 @@ class ExportMixin:
             c_dl, c_open = st.columns(2)
             with c_dl:
                 with open(excel_path, "rb") as f:
-                    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True)
+                    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True, key="dl_excel_export_panel")
             with c_open:
                 if st.button("📂 打开文件夹", use_container_width=True):
                     self.open_in_system(export_dir)
