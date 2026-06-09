@@ -504,12 +504,10 @@ class DataMixin:
         current_tags = st.session_state.selected_tags.get(str(group['id']), [])
         tags_str = "; ".join(current_tags) if current_tags else ""
 
-        # 确保标签不丢失：若用户已选标签但备注为空，将标签写入备注栏
+        # 标签已由 _sync_tags_to_notes 写入 feedback，此处只处理 feedback 为空的情况
         feedback_val = feedback if feedback else ""
         if not feedback_val and tags_str:
             feedback_val = tags_str
-        elif feedback_val and tags_str:
-            feedback_val = f"{tags_str}; {feedback_val}"
 
         record = {
             "姓名": group.get('user_name', '未知'),
