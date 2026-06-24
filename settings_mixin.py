@@ -137,6 +137,16 @@ class SettingsMixin:
                     return;
                 }
 
+                // 合格并提交 — X
+                if (e.key === 'x' || e.key === 'X') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // 通过 innerText 查找隐藏的快捷提交按钮
+                    const btn = findBtn(b => b.innerText.includes('快捷合格提交'));
+                    if (btn && !btn.disabled) btn.click();
+                    return;
+                }
+
                 // 上一条
                 if (e.key === 'ArrowLeft') {
                     e.preventDefault();
@@ -175,8 +185,9 @@ class SettingsMixin:
                 }
             }
             doc.removeEventListener('keydown', window.parent.myHotkeysHandler);
+            doc.removeEventListener('keydown', window.parent.myHotkeysHandler, true);
             window.parent.myHotkeysHandler = handleHotkeys;
-            doc.addEventListener('keydown', window.parent.myHotkeysHandler);
+            doc.addEventListener('keydown', window.parent.myHotkeysHandler, true);
         })();
         </script>
         """
