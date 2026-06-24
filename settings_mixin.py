@@ -137,6 +137,15 @@ class SettingsMixin:
                     return;
                 }
 
+                // 合格并提交 — X
+                if (e.key === 'x' || e.key === 'X') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const btn = findBtn(b => b.innerText.includes('快捷合格提交'));
+                    if (btn && !btn.disabled) btn.click();
+                    return;
+                }
+
                 // 上一条
                 if (e.key === 'ArrowLeft') {
                     e.preventDefault();

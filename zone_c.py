@@ -163,6 +163,14 @@ class ZoneCMixin:
                         pass
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # 快捷键【X】合格并提交 - 隐藏按钮
+        st.markdown('<style>.hotkey-hide { display: none; }</style>', unsafe_allow_html=True)
+        st.markdown('<div class="hotkey-hide">', unsafe_allow_html=True)
+        if st.button("快捷合格提交", key=f"hotkey_x_qual_submit_{group['id']}",
+                     on_click=lambda: st.session_state.update({'status_pills': '合格', '_hotkey_submit': True})):
+            pass
+        st.markdown('</div>', unsafe_allow_html=True)
+
         # 检测状态变更（撤销判定彩蛋）
         prev_status_key = f"_ee_prev_status_{group['id']}"
         prev_status = st.session_state.get(prev_status_key)
@@ -252,8 +260,9 @@ class ZoneCMixin:
                     st.session_state.selected_tags[current_id] = []
                     self._sync_tags_to_notes(group)
 
-        if is_save or is_submit:
-            if missing_fields:
+        hotkey_submit = st.session_state.pop('_hotkey_submit', False)
+        if is_save or is_submit or hotkey_submit:
+            if missing_fields and not hotkey_submit:
                 st.error(f"🛑 无法提交！请补充：{'、'.join(missing_fields)}")
             else:
                 final_zh = st.session_state.get(f"zh_{group['id']}", "")
@@ -272,7 +281,7 @@ class ZoneCMixin:
                     if is_save:
                         st.toast("✓ 已保存", icon="💾")
                         on_status_judged(status_sel)
-                    elif is_submit:
+                    elif is_submit or hotkey_submit:
                         st.session_state['_ee_submit_flash'] = True
                         on_status_judged(status_sel)
                         # 使用 nav_ids（已筛选）而非 all_ids（全量），避免筛选条件下跳转错误
