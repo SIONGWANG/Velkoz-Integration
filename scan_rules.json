@@ -1,0 +1,28 @@
+{
+  "folder_digit_length": 8,
+  "image_slots": [
+    {
+      "stem_suffixes": [
+        ""
+      ]
+    },
+    {
+      "stem_suffixes": [
+        "_result"
+      ]
+    }
+  ],
+  "text_slots": [
+    {
+      "suffixes": [
+        "_ZH",
+        "_CH"
+      ]
+    },
+    {
+      "suffixes": [
+        "_EN"
+      ]
+    }
+  ]
+}

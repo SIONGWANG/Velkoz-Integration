@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-05-26
+type: review
+version: 1.2.5
+target: 1.2.6
+focus: functionality, interaction robustness, UX friction
+reviewer: Claude Code

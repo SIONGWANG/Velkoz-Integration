@@ -1,0 +1,11 @@
+change_id: v1.3.7-packaging
+title: V1.3.7 打包发布（Vel'Koz 绿色版）
+status: completed
+created: 2026-05-28
+completed: 2026-05-28
+description: |
+  将 V1.3.7 版本打包成"解压即用"的绿色发布包。
+  英文名：Vel'Koz
+  核心策略：内嵌 Python 3.11 embeddable 版本 + 自动 pip 依赖安装。
+  用户体验：解压 → 双击"启动.bat" → 首次自动初始化 → 浏览器自动打开。
+  开发者工具：setup_embedded_python.bat（初始化环境）、打包.bat（一键生成 ZIP）。

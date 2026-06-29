@@ -1,0 +1,7 @@
+change_id: v1.3.5-refactor
+title: V1.3.5 app.py 单体拆分重构
+status: completed
+created: 2026-05-27
+description: |
+  将 app.py (3,034行) 拆分为 9 个模块，采用 Mixin 多继承架构。
+  目标：app.py 缩减至 ~200 行，每个新模块 <500 行。

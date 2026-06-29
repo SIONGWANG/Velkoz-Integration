@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>审视之眼 Pro v1.3.0 — 用户操作手册</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e4e7f0;
+    --text2: #9ca3bf;
+    --accent: #6c8cff;
+    --accent2: #4a6adf;
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --blue: #60a5fa;
+    --purple: #a78bfa;
+    --orange: #fb923c;
+    --radius: 10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* ── Top Nav ── */
+  .topbar {
+    position: fixed; top:0; left:0; right:0; z-index: 100;
+    background: rgba(15,17,23,.88);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .topbar .logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+  .topbar .version { font-size: 12px; color: var(--text2); background: var(--surface2); padding: 2px 10px; border-radius: 20px; }
+
+  /* ── Layout ── */
+  .wrapper { display: flex; margin-top: 56px; }
+
+  /* ── Sidebar TOC ── */
+  .sidebar {
+    position: fixed; top: 56px; left: 0; bottom: 0;
+    width: 260px; overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .sidebar .toc-group { padding: 0 16px; margin-bottom: 8px; }
+  .sidebar .toc-group-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text2); padding: 8px 0 4px; font-weight: 600;
+  }
+  .sidebar a {
+    display: block; padding: 6px 12px; margin: 2px 0;
+    color: var(--text2); text-decoration: none; font-size: 13.5px;
+    border-radius: 6px; transition: all .15s;
+  }
+  .sidebar a:hover, .sidebar a.active { background: var(--surface2); color: var(--accent); }
+
+  /* ── Main Content ── */
+  .main {
+    margin-left: 260px; padding: 48px 56px 80px;
+    max-width: 920px;
+  }
+
+  /* ── Section Styling ── */
+  h1 {
+    font-size: 36px; font-weight: 800; margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .subtitle { color: var(--text2); font-size: 16px; margin-bottom: 48px; }
+  h2 {
+    font-size: 24px; font-weight: 700; margin: 56px 0 16px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--border);
+    color: var(--text);
+  }
+  h3 {
+    font-size: 18px; font-weight: 600; margin: 32px 0 12px;
+    color: var(--accent);
+  }
+  h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--text); }
+  p { margin: 8px 0; }
+  ul, ol { padding-left: 24px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  strong { color: var(--text); }
+  code {
+    background: var(--surface2); color: var(--orange);
+    padding: 1px 6px; border-radius: 4px; font-size: 13px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+  }
+
+  /* ── Info Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .card-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px; margin: 16px 0;
+  }
+  .card-grid .card { padding: 16px 18px; }
+  .card .card-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .card .card-desc { font-size: 13px; color: var(--text2); }
+
+  /* ── Badge / Tag ── */
+  .badge {
+    display: inline-block; padding: 2px 10px;
+    border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+  .badge-green  { background: rgba(52,211,153,.15); color: var(--green); }
+  .badge-red    { background: rgba(248,113,113,.15); color: var(--red); }
+  .badge-yellow { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .badge-blue   { background: rgba(96,165,250,.15); color: var(--blue); }
+  .badge-purple { background: rgba(167,139,250,.15); color: var(--purple); }
+
+  /* ── Keyboard Shortcut Table ── */
+  .kbd-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .kbd-table th {
+    text-align: left; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text2);
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+  }
+  .kbd-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .kbd-table tr:hover { background: var(--surface2); }
+  kbd {
+    display: inline-block; padding: 2px 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; font-size: 12px; font-family: monospace;
+    color: var(--accent); box-shadow: 0 1px 0 var(--border);
+  }
+
+  /* ── Step List ── */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li {
+    counter-increment: step; position: relative;
+    padding: 12px 0 12px 48px; margin: 0;
+    border-left: 2px solid var(--border);
+    margin-left: 16px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: -15px; top: 10px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps li:last-child { border-left-color: transparent; }
+
+  /* ── Callout ── */
+  .callout {
+    border-radius: var(--radius); padding: 16px 20px;
+    margin: 16px 0; font-size: 14px;
+    border-left: 4px solid;
+  }
+  .callout-info  { background: rgba(96,165,250,.08); border-color: var(--blue); }
+  .callout-warn  { background: rgba(251,191,36,.08); border-color: var(--yellow); }
+  .callout-tip   { background: rgba(52,211,153,.08); border-color: var(--green); }
+  .callout-title { font-weight: 600; margin-bottom: 4px; }
+
+  /* ── Config Table ── */
+  .config-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  .config-table th {
+    text-align: left; padding: 10px 14px;
+    background: var(--surface2); color: var(--text2);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+  .config-table td {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .config-table tr:hover { background: rgba(108,140,255,.04); }
+
+  /* ── Diagram / ASCII ── */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin: 16px 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px; line-height: 1.6;
+    color: var(--text2);
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { margin-left: 0; padding: 32px 20px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top Bar ── -->
+<div class="topbar">
+  <div class="logo">审视之眼 Pro</div>
+  <div class="version">v1.3.0 用户操作手册</div>
+</div>
+
+<div class="wrapper">
+<!-- ── Sidebar ── -->
+<nav class="sidebar">
+  <div class="toc-group">
+    <div class="toc-group-title">开始使用</div>
+    <a href="#overview">产品概述</a>
+    <a href="#launch">启动与环境</a>
+    <a href="#workflow">标准工作流</a>
+  </div>
+  <div class="toc-group">
+    <div class="toc-group-title">界面布局</div>
+    <a href="#layout">三栏布局总览</a>
+    <a href="#zone-a">A区 · 左侧面板</a>
+    <a href="#zone-b">B区 · 图片展示区</a>
+    <a href="#zone-c">C区 · 右侧操作区</a>
+  </div>
+  <div class="toc-group">
+    <div class="toc-group-title">核心功能</div>
+    <a href="#scan">数据加载与扫描</a>
+    <a href="#review">质检判定操作</a>
+    <a href="#category">L1/L2 分类</a>
+    <a href="#tags">快捷标签</a>
+    <a href="#screenshot">错误截图</a>
+    <a href="#ai-panel">AI 预识别</a>
+    <a href="#sampling">抽样验收</a>
+  </div>
+  <div class="toc-group">
+    <div class="toc-group-title">数据导出</div>
+    <a href="#export-qualified">合格数据导出</a>
+    <a href="#export-reject">不合格数据归集</a>
+    <a href="#export-excel">Excel 报告</a>
+    <a href="#export-verify">导出校验</a>
+  </div>
+  <div class="toc-group">
+    <div class="toc-group-title">配置参考</div>
+    <a href="#config-scan">扫描规则配置</a>
+    <a href="#config-category">分类配置</a>
+    <a href="#config-settings">运行时设置</a>
+    <a href="#shortcuts">快捷键</a>
+  </div>
+  <div class="toc-group">
+    <div class="toc-group-title">附录</div>
+    <a href="#faq">常见问题</a>
+    <a href="#changelog">版本记录</a>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<main class="main">
+
+<h1>审视之眼 Pro</h1>
+<p class="subtitle">图像质检验收工具 · 用户操作手册 · 版本 1.3.0</p>
+
+<!-- ============================== -->
+<!-- 概述 -->
+<!-- ============================== -->
+<h2 id="overview">产品概述</h2>
+<p><strong>审视之眼 Pro</strong> 是一款面向图像标注团队的 Web 端质检验收工具。质检员可以通过它逐条审核标注数据、判定合格/不合格、附加错误截图、管理分类标签，并一键导出合格数据与 Excel 质检报告。</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">数据扫描</div>
+    <div class="card-desc">自动遍历目录，识别数字文件夹作为质检项，支持可配置扫描规则</div>
+  </div>
+  <div class="card">
+    <div class="card-title">可视化审核</div>
+    <div class="card-desc">四宫格 / 单图对比双模式，支持中英文文本编辑</div>
+  </div>
+  <div class="card">
+    <div class="card-title">结构化判定</div>
+    <div class="card-desc">L1/L2 分类、快捷标签、备注、错误截图，数据完整落盘</div>
+  </div>
+  <div class="card">
+    <div class="card-title">一键导出</div>
+    <div class="card-desc">合格数据复制、不合格归集、Excel 报告（含嵌入截图）</div>
+  </div>
+</div>
+
+<!-- ============================== -->
+<!-- 启动 -->
+<!-- ============================== -->
+<h2 id="launch">启动与环境</h2>
+
+<h3>环境要求</h3>
+<ul>
+  <li><strong>Python 3.11</strong>（推荐通过官方安装器安装，并勾选 "Add to PATH"）</li>
+  <li>依赖包：<code>streamlit</code> <code>pandas</code> <code>Pillow</code> <code>XlsxWriter</code> <code>streamlit-paste-button</code></li>
+</ul>
+
+<h3>启动步骤</h3>
+<ol class="steps">
+  <li>双击运行项目根目录下的 <code>启动_采集质检版.bat</code></li>
+  <li>脚本自动检测 Python 环境并安装缺失依赖</li>
+  <li>自动寻找可用端口（从 8502 起），启动 Streamlit 服务</li>
+  <li>浏览器自动打开 <code>http://localhost:{port}</code>，看到主界面即启动成功</li>
+</ol>
+
+<div class="callout callout-info">
+  <div class="callout-title">提示</div>
+  如果浏览器未自动打开，手动访问终端中显示的 URL 即可。默认端口 8502，若被占用会自动递增。
+</div>
+
+<!-- ============================== -->
+<!-- 标准工作流 -->
+<!-- ============================== -->
+<h2 id="workflow">标准工作流</h2>
+<p>以下是一次完整质检验收的标准操作流程：</p>
+
+<ol class="steps">
+  <li><strong>启动应用</strong> — 双击 <code>启动_采集质检版.bat</code>，等待浏览器打开</li>
+  <li><strong>填写基本信息</strong> — 在 A 区输入质检员姓名、粘贴任务根目录路径</li>
+  <li><strong>加载数据</strong> — 点击「加载文件夹」，等待扫描完成</li>
+  <li><strong>（可选）确认标注员</strong> — 若开启多标注员模式，检查并确认标注员名单</li>
+  <li><strong>逐条审核</strong> — 在 A 区列表点击 ID，B 区查看图片与文本，C 区选择分类和判定结果</li>
+  <li><strong>附加证据</strong> — 对不合格项，Ctrl+V 粘贴错误截图（最多 3 张）</li>
+  <li><strong>保存/提交</strong> — 点击「保存」仅记录，或「提交并下一条」自动跳转</li>
+  <li><strong>全部完成后导出</strong> — 使用 A 区导出面板，导出合格数据、归集不合格数据、生成 Excel 报告</li>
+</ol>
+
+<!-- ============================== -->
+<!-- 界面布局 -->
+<!-- ============================== -->
+<h2 id="layout">三栏布局总览</h2>
+<p>界面分为三个区域，从左到右依次为：</p>
+
+<div class="diagram">
+┌──────────────────────────────────────────────────────────────────────┐
+│                         审视之眼 Pro  v1.3.0                         │
+├──────────┬───────────────────────────────────────┬──────────────────┤
+│          │                                       │                  │
+│  A 区    │              B 区                      │     C 区         │
+│  左侧    │          图片展示 & 文本               │   右侧操作       │
+│  面板     │            主区域                      │     面板          │
+│          │                                       │                  │
+│ · 状态   │  ┌─────────────┬─────────────┐       │ · 标注员/ID     │
+│   仪表盘 │  │             │             │       │ · 错误截图      │
+│ · 进度条 │  │   图片 1    │   图片 2    │       │ · L1/L2 分类    │
+│ · 筛选   │  │             │             │       │ · 判定状态      │
+│ · ID 列表│  ├─────────────┼─────────────┤       │ · 备注 & 标签   │
+│ · 导出   │  │             │             │       │ · 保存/提交     │
+│ · 抽样   │  │   图片 3    │   图片 4    │       │ · 上/下导航     │
+│ · AI面板 │  │             │             │       │                  │
+│ · 分类   │  └─────────────┴─────────────┘       │                  │
+│ · 设置   │  [ 中文文本 ]  [ 英文文本 ]           │                  │
+│          │                                       │                  │
+├──────────┴───────────────────────────────────────┴──────────────────┤
+│                          状态栏 / 快捷键提示                         │
+└──────────────────────────────────────────────────────────────────────┘
+</div>
+
+<!-- ============================== -->
+<!-- A 区 -->
+<!-- ============================== -->
+<h2 id="zone-a">A 区 · 左侧面板</h2>
+<p>A 区是控制中心，包含状态监控、数据筛选和导出管理。</p>
+
+<h3>状态仪表盘</h3>
+<p>实时显示各项统计数据：</p>
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title"><span class="badge badge-green">合格</span></div>
+    <div class="card-desc">标记为「合格」的数据条数</div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge badge-blue">修改合格</span></div>
+    <div class="card-desc">经过修改后判定合格的条数</div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge badge-red">不合格</span></div>
+    <div class="card-desc">判定不合格的条数</div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge badge-yellow">待定</span></div>
+    <div class="card-desc">需要进一步确认的条数</div>
+  </div>
+</div>
+<p>同时显示<strong>通过率</strong>百分比和<strong>进度条</strong>，直观反映质检完成度。</p>
+
+<h3>状态筛选</h3>
+<p>提供 2×3 网格的筛选按钮，可按状态过滤 ID 列表：</p>
+<ul>
+  <li><strong>全部</strong> — 显示所有数据项</li>
+  <li><strong>未审核</strong> — 尚未做出判定的项</li>
+  <li><strong>合格</strong> — 已判定合格</li>
+  <li><strong>修改合格</strong> — 修改后合格</li>
+  <li><strong>不合格</strong> — 判定不合格</li>
+  <li><strong>待定</strong> — 待进一步确认</li>
+</ul>
+
+<h3>ID 列表</h3>
+<p>分页显示所有质检项（每页 20 条），每条显示：</p>
+<ul>
+  <li>带颜色的状态标识（绿/蓝/红/黄/灰）</li>
+  <li>数据 ID 编号</li>
+  <li>标注员姓名</li>
+</ul>
+<p>点击任意 ID 即可在 B 区加载对应图片进行审核。</p>
+
+<h3>导出管理面板</h3>
+<p>位于 A 区底部，包含以下操作按钮：</p>
+<ul>
+  <li><strong>导出合格数据</strong> — 将合格/修改合格项的文件夹复制到时间戳输出目录</li>
+  <li><strong>归集不合格数据</strong> — 将不合格/待定项移至 <code>{日期}不合格</code> 文件夹</li>
+  <li><strong>导出 Excel 报告</strong> — 生成含嵌入截图的 .xlsx 质检报告</li>
+  <li><strong>导出校验</strong> — 逐文件对比源与目标，确认数据完整性</li>
+</ul>
+
+<div class="callout callout-warn">
+  <div class="callout-title">安全机制</div>
+  导出前系统会自动检查：所有已加载的数据 ID 是否都有对应的 CSV 记录。若有遗漏，导出将被阻止，并列出缺失的 ID。
+</div>
+
+<h3>抽样验收</h3>
+<p>可按 5%~50% 的比例随机抽取数据进行重点审核。抽样模式下仅显示被抽中的项，退出抽样后自动恢复完整列表。</p>
+
+<h3>设置面板</h3>
+<p>可调整以下参数：</p>
+<ul>
+  <li><strong>布局宽度</strong> — 中间 B 区宽度比例（50%~90%）</li>
+  <li><strong>布局高度</strong> — 图片显示区域高度比例（60%~95%）</li>
+  <li><strong>视图模式</strong> — 四宫格 / 单图对比</li>
+  <li><strong>扫描规则</strong> — 在线编辑文件夹位数、图片槽位、文本槽位</li>
+  <li><strong>快捷键开关</strong> — 启用/禁用键盘快捷键</li>
+</ul>
+
+<!-- ============================== -->
+<!-- B 区 -->
+<!-- ============================== -->
+<h2 id="zone-b">B 区 · 图片展示区</h2>
+<p>B 区是核心审核区域，占据界面中央最大空间。</p>
+
+<h3>视图模式</h3>
+
+<h4>四宫格模式</h4>
+<p>以 2×2 网格同时展示所有图片（原图、结果图等）。双击任意图片可在系统默认查看器中打开大图。</p>
+
+<h4>单图对比模式</h4>
+<p>每次显示一张图片，通过标签页按钮切换（原图 / 结果图 / 遮罩图等）。适合需要仔细对比细节的场景。</p>
+
+<h3>进度指示器</h3>
+<p>顶部显示当前位置 / 总数，配合迷你进度条，方便了解审核进度。</p>
+
+<h3>文本区域</h3>
+<p>图片下方显示并允许编辑中英文指令文本文件：</p>
+<ul>
+  <li><strong>中文文本</strong>（<code>_ZH</code> / <code>_CH</code> 后缀文件）</li>
+  <li><strong>英文文本</strong>（<code>_EN</code> 后缀文件）</li>
+</ul>
+
+<h3>AI 质检结果</h3>
+<p>若已加载 AI 报告，B 区会额外显示 AI 的判定结果、原因分析和完整 JSON 数据，供质检员参考。</p>
+
+<h3>批次完成面板</h3>
+<p>当所有数据项审核完毕，B 区自动切换为完成面板，显示汇总统计、通过率，以及导出 Excel 和归集不合格数据的快捷按钮。</p>
+
+<!-- ============================== -->
+<!-- C 区 -->
+<!-- ============================== -->
+<h2 id="zone-c">C 区 · 右侧操作区</h2>
+<p>C 区是操作面板，完成每条数据的判定和保存。</p>
+
+<h3>数据项信息</h3>
+<ul>
+  <li>当前标注员姓名</li>
+  <li>当前数据 ID</li>
+  <li>「打开文件夹」按钮 — 在资源管理器中打开</li>
+  <li>「打开原图」按钮 — 在系统查看器中打开</li>
+</ul>
+
+<h3>错误截图</h3>
+<p>每条数据最多附加 <strong>3 张</strong> 错误截图，支持两种方式：</p>
+<ul>
+  <li><strong>粘贴</strong> — 截图后按 <kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴</li>
+  <li><strong>上传</strong> — 点击上传按钮选择本地图片</li>
+</ul>
+<p>截图以缩略图形式展示，点击可预览。</p>
+
+<h3>L1/L2 分类</h3>
+<p>两级层级分类选择器，以药丸按钮形式展示。先选 L1 大类，再选 L2 细分类。</p>
+
+<h3>判定状态</h3>
+<p>2×2 网格的四个判定按钮：</p>
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title"><span class="badge badge-green">合格</span></div>
+    <div class="card-desc">数据质量达标，可直接使用</div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge badge-blue">修改合格</span></div>
+    <div class="card-desc">经修改后质量达标</div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge badge-red">不合格</span></div>
+    <div class="card-desc">质量不达标，需返修或废弃</div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="badge badge-yellow">待定</span></div>
+    <div class="card-desc">需进一步确认或讨论</div>
+  </div>
+</div>
+
+<h3>备注与标签</h3>
+<ul>
+  <li><strong>备注框</strong> — 自由文本输入，记录审核意见</li>
+  <li><strong>快捷标签</strong> — 点击标签药丸自动追加到备注中</li>
+  <li><strong>标签管理</strong> — 可新增/删除标签，持久化保存到 <code>config/tags.json</code></li>
+</ul>
+
+<h3>保存与提交</h3>
+<ul>
+  <li><strong>仅保存</strong> — 将当前判定结果写入 CSV，不跳转</li>
+  <li><strong>提交并下一条</strong> — 保存后自动跳转到下一条未审核数据</li>
+</ul>
+
+<h3>导航</h3>
+<p>「上一条」/「下一条」按钮，按当前筛选条件在列表中移动。</p>
+
+<!-- ============================== -->
+<!-- 数据加载与扫描 -->
+<!-- ============================== -->
+<h2 id="scan">数据加载与扫描</h2>
+
+<h3>扫描规则</h3>
+<p>系统根据 <code>scan_rules.json</code> 中定义的规则识别数据文件夹：</p>
+
+<table class="config-table">
+  <tr>
+    <th>规则项</th>
+    <th>默认值</th>
+    <th>说明</th>
+  </tr>
+  <tr>
+    <td><code>folder_digit_length</code></td>
+    <td>8</td>
+    <td>数据文件夹名称的数字位数（如 8 位数的任务编号）</td>
+  </tr>
+  <tr>
+    <td><code>image_slots</code></td>
+    <td><code>["", "_result"]</code></td>
+    <td>图片槽位后缀：基础图（无后缀）和结果图（<code>_result</code>）</td>
+  </tr>
+  <tr>
+    <td><code>text_slots</code></td>
+    <td><code>["_ZH/_CH", "_EN"]</code></td>
+    <td>文本文件槽位：中文指令和英文指令</td>
+  </tr>
+</table>
+
+<h3>标注员识别</h3>
+<p>系统从文件夹路径层级中智能提取标注员姓名，支持多种启发式策略：</p>
+<ul>
+  <li>后缀模式（如 "返修"）</li>
+  <li>括号模式（如 "[张三]"）</li>
+  <li>路径层级推断</li>
+</ul>
+
+<h3>标注员确认面板</h3>
+<p>开启后，加载数据时会先弹出确认面板：</p>
+<ul>
+  <li>显示所有检测到的标注员</li>
+  <li>可重命名「未知」标注员</li>
+  <li>可排除特定标注员的数据</li>
+  <li>确认后才开始正式质检</li>
+</ul>
+
+<!-- ============================== -->
+<!-- 质检判定 -->
+<!-- ============================== -->
+<h2 id="review">质检判定操作</h2>
+
+<h3>单条审核流程</h3>
+<ol class="steps">
+  <li><strong>查看图片</strong> — 在 B 区查看原图和结果图，可切换四宫格或单图模式</li>
+  <li><strong>阅读文本</strong> — 检查中英文指令是否正确</li>
+  <li><strong>选择分类</strong> — 在 C 区选择 L1/L2 分类</li>
+  <li><strong>做出判定</strong> — 点击合格/不合格/修改合格/待定</li>
+  <li><strong>添加备注</strong> — 输入审核意见，或点击快捷标签</li>
+  <li><strong>附加截图</strong> — 对不合格项粘贴错误截图</li>
+  <li><strong>保存/提交</strong> — 点击「提交并下一条」</li>
+</ol>
+
+<div class="callout callout-tip">
+  <div class="callout-title">快捷操作</strong></div>
+  使用键盘快捷键可大幅提升效率：<kbd>←</kbd><kbd>→</kbd> 切换数据，<kbd>空格</kbd> 提交并下一条，<kbd>1</kbd>-<kbd>4</kbd> 切换图片视图。
+</div>
+
+<!-- ============================== -->
+<!-- 分类 -->
+<!-- ============================== -->
+<h2 id="category">L1/L2 分类管理</h2>
+<p>两级分类体系用于对质检问题进行结构化归类。</p>
+
+<h3>使用方式</h3>
+<ol>
+  <li>在 C 区点击 L1 大类药丸按钮（如 "内容问题"、"格式问题" 等）</li>
+  <li>选择 L1 后，下方自动展开对应的 L2 细分类选项</li>
+  <li>点击 L2 完成分类选择</li>
+</ol>
+
+<h3>管理分类</h3>
+<p>在 A 区的「分类管理」面板中：</p>
+<ul>
+  <li>新增 L1 大类</li>
+  <li>在 L1 下新增 L2 子类</li>
+  <li>编辑/删除已有分类</li>
+</ul>
+<p>分类数据持久化保存在 <code>categories_config.json</code> 中。</p>
+
+<!-- ============================== -->
+<!-- 标签 -->
+<!-- ============================== -->
+<h2 id="tags">快捷标签</h2>
+<p>快捷标签是预设的常用审核评语，点击即可自动追加到备注框中。</p>
+
+<h3>使用方式</h3>
+<ul>
+  <li>在 C 区的标签区域，点击标签药丸即可添加</li>
+  <li>「常用标签」区域显示高频使用的标签</li>
+  <li>「全部标签」区域显示所有可用标签</li>
+</ul>
+
+<h3>管理标签</h3>
+<ul>
+  <li>输入新标签名称，点击「添加」创建新标签</li>
+  <li>点击标签右侧的删除按钮移除标签</li>
+  <li>标签数据保存在 <code>config/tags.json</code></li>
+</ul>
+
+<!-- ============================== -->
+<!-- 错误截图 -->
+<!-- ============================== -->
+<h2 id="screenshot">错误截图</h2>
+<p>对不合格数据项，可附加最多 <strong>3 张</strong> 错误截图作为证据。</p>
+
+<h3>操作方式</h3>
+<ul>
+  <li><strong>剪贴板粘贴</strong> — 使用系统截图工具（如 Win+Shift+S）截图后，在 C 区按 <kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴</li>
+  <li><strong>文件上传</strong> — 点击上传按钮，从本地选择图片文件</li>
+</ul>
+<p>截图以缩略图展示，保存后自动存储到 <code>_00_Evidence_All</code> 文件夹，并在 CSV 中记录路径。</p>
+
+<!-- ============================== -->
+<!-- AI 预识别 -->
+<!-- ============================== -->
+<h2 id="ai-panel">AI 预识别</h2>
+<p>支持加载 AI 预先质检的结果，作为人工审核的参考。</p>
+
+<h3>使用方式</h3>
+<ol>
+  <li>在 A 区的「AI 预识别」面板，加载 <code>final_report.csv</code> 文件（或手动上传）</li>
+  <li>浏览数据时，B 区额外显示 AI 的判定结果</li>
+  <li>C 区显示 AI 的通过/不通过状态及原因分析</li>
+</ol>
+
+<div class="callout callout-info">
+  <div class="callout-title">说明</div>
+  AI 结果仅供参考，最终判定以人工审核为准。AI 预识别不会覆盖人工判定。
+</div>
+
+<!-- ============================== -->
+<!-- 抽样验收 -->
+<!-- ============================== -->
+<h2 id="sampling">抽样验收</h2>
+<p>当数据量较大时，可使用抽样模式对部分数据进行重点审核。</p>
+
+<h3>操作步骤</h3>
+<ol>
+  <li>在 A 区找到「抽样验收」面板</li>
+  <li>设置抽样比例（5% ~ 50%）</li>
+  <li>点击「开始抽样」，系统随机抽取对应比例的数据项</li>
+  <li>仅显示被抽中的项，专注审核</li>
+  <li>完成后点击「退出抽样」，恢复完整列表</li>
+</ol>
+
+<!-- ============================== -->
+<!-- 导出 -->
+<!-- ============================== -->
+<h2 id="export-qualified">合格数据导出</h2>
+<p>将所有判定为<strong>「合格」</strong>或<strong>「修改合格」</strong>的数据文件夹复制到指定输出目录。</p>
+<ul>
+  <li>输出目录自动以时间戳命名，避免覆盖</li>
+  <li>保持原始文件夹结构不变</li>
+  <li>复制完成后自动执行校验</li>
+</ul>
+
+<h2 id="export-reject">不合格数据归集</h2>
+<p>将所有判定为<strong>「不合格」</strong>和<strong>「待定」</strong>的数据文件夹归集到 <code>{日期}不合格</code> 目录。</p>
+<ul>
+  <li>采用「先复制后删除」策略，确保数据安全</li>
+  <li>原始目录结构保持不变</li>
+</ul>
+
+<h2 id="export-excel">Excel 报告导出</h2>
+<p>生成 <code>.xlsx</code> 格式的质检报告，包含：</p>
+<ul>
+  <li>完整的 CSV 数据表（标注员、ID、L1/L2 分类、判定结果、备注、标签、时间戳等）</li>
+  <li>错误截图作为内嵌图片插入对应行</li>
+</ul>
+
+<h2 id="export-verify">导出校验</h2>
+<p>导出完成后可执行校验，系统逐文件对比源目录与目标目录，确认所有文件完整传输。</p>
+
+<!-- ============================== -->
+<!-- 配置参考 -->
+<!-- ============================== -->
+<h2 id="config-scan">扫描规则配置</h2>
+<p>文件位置：<code>scan_rules.json</code></p>
+<pre class="diagram">{
+  "folder_digit_length": 8,
+  "image_slots": ["", "_result"],
+  "text_slots": ["_ZH/_CH", "_EN"]
+}</pre>
+
+<table class="config-table">
+  <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+  <tr><td><code>folder_digit_length</code></td><td>整数</td><td>数据文件夹名称的数字位数</td></tr>
+  <tr><td><code>image_slots</code></td><td>字符串数组</td><td>每个数据文件夹中的图片文件后缀列表</td></tr>
+  <tr><td><code>text_slots</code></td><td>字符串数组</td><td>文本文件后缀，<code>/</code> 表示或关系（如 <code>_ZH/_CH</code> 表示匹配 <code>_ZH</code> 或 <code>_CH</code>）</td></tr>
+</table>
+
+<h2 id="config-category">分类配置</h2>
+<p>文件位置：<code>categories_config.json</code></p>
+<pre class="diagram">{
+  "L1": ["内容问题", "格式问题", "标注错误"],
+  "L2": {
+    "内容问题": ["文字错误", "语义不通", "遗漏内容"],
+    "格式问题": ["排版混乱", "图片缺失"],
+    "标注错误": ["标签错误", "区域偏移"]
+  }
+}</pre>
+<p>也可通过 A 区的「分类管理」面板在界面上直接编辑。</p>
+
+<h2 id="config-settings">运行时设置</h2>
+<p>文件位置：<code>config/settings.json</code>（运行时自动生成）</p>
+<table class="config-table">
+  <tr><th>字段</th><th>说明</th></tr>
+  <tr><td><code>layout_width</code></td><td>B 区宽度比例（50~90）</td></tr>
+  <tr><td><code>layout_height</code></td><td>图片区域高度比例（60~95）</td></tr>
+  <tr><td><code>view_mode</code></td><td>视图模式：四宫格 / 单图对比</td></tr>
+  <tr><td><code>root_path</code></td><td>上次使用的任务根目录</td></tr>
+  <tr><td><code>operator_name</code></td><td>上次使用的质检员姓名</td></tr>
+  <tr><td><code>annotator_confirm</code></td><td>是否开启标注员确认面板</td></tr>
+</table>
+
+<!-- ============================== -->
+<!-- 快捷键 -->
+<!-- ============================== -->
+<h2 id="shortcuts">快捷键</h2>
+<table class="kbd-table">
+  <tr><th>按键</th><th>功能</th></tr>
+  <tr><td><kbd>&larr;</kbd></td><td>上一条数据</td></tr>
+  <tr><td><kbd>&rarr;</kbd></td><td>下一条数据</td></tr>
+  <tr><td><kbd>空格</kbd></td><td>提交并跳转到下一条</td></tr>
+  <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>切换图片/视图</td></tr>
+  <tr><td><kbd>`</kbd></td><td>在系统查看器中打开当前图片</td></tr>
+  <tr><td><kbd>F11</kbd></td><td>切换全屏</td></tr>
+</table>
+
+<div class="callout callout-info">
+  <div class="callout-title">提示</div>
+  可在 A 区设置面板中全局启用或禁用快捷键。禁用后快捷键不会与 Streamlit 输入框冲突。
+</div>
+
+<!-- ============================== -->
+<!-- FAQ -->
+<!-- ============================== -->
+<h2 id="faq">常见问题</h2>
+
+<h4>Q: 加载文件夹后没有显示数据？</h4>
+<p>A: 检查 <code>scan_rules.json</code> 中的 <code>folder_digit_length</code> 是否与实际文件夹名位数匹配。确保根目录下存在数字命名的子文件夹。</p>
+
+<h4>Q: 图片显示不出来？</h4>
+<p>A: 确认图片格式为 JPG/PNG，文件未损坏。系统支持 EXIF 自动旋转，但超过 200MP 的图片会被安全策略拒绝。</p>
+
+<h4>Q: 导出时提示有缺失 ID？</h4>
+<p>A: 说明部分数据项尚未保存判定结果。返回列表，筛选「未审核」状态，完成所有审核后再导出。</p>
+
+<h4>Q: 快捷键不生效？</h4>
+<p>A: 确保光标不在文本输入框内（点击空白区域移出焦点），且设置面板中快捷键已启用。</p>
+
+<h4>Q: CSV 文件被其他程序占用？</h4>
+<p>A: 系统使用原子写入策略（临时文件 + 重命名），并有自动重试机制。关闭占用 CSV 的其他程序即可。</p>
+
+<h4>Q: 如何切换视图模式？</h4>
+<p>A: 在 A 区设置面板中切换「四宫格」/「单图对比」模式，或使用数字键 <kbd>1</kbd>-<kbd>4</kbd> 切换。</p>
+
+<!-- ============================== -->
+<!-- 版本记录 -->
+<!-- ============================== -->
+<h2 id="changelog">版本记录</h2>
+<p>v1.3.0 为当前版本，详细更新日志请参阅项目根目录下的 <code>项目更新维护日志.md</code>。</p>
+
+<div class="card" style="margin-top: 24px;">
+  <div class="card-title" style="color: var(--text2); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">文档信息</div>
+  <div class="card-desc" style="margin-top: 8px;">
+    产品：审视之眼 Pro v1.3.0<br>
+    适用版本：1.3.0<br>
+    生成日期：2026-05-26<br>
+    技术栈：Python 3.11 · Streamlit · Pandas · Pillow · XlsxWriter
+  </div>
+</div>
+
+</main>
+</div>
+
+<script>
+// Smooth scroll & active TOC highlighting
+document.addEventListener('DOMContentLoaded', () => {
+  const links = document.querySelectorAll('.sidebar a');
+  const sections = [];
+  links.forEach(a => {
+    const id = a.getAttribute('href')?.slice(1);
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) sections.push({ id, el, link: a });
+    }
+  });
+
+  const activate = () => {
+    let current = sections[0];
+    for (const s of sections) {
+      if (s.el.getBoundingClientRect().top <= 120) current = s;
+    }
+    links.forEach(l => l.classList.remove('active'));
+    if (current) current.link.classList.add('active');
+  };
+
+  window.addEventListener('scroll', activate, { passive: true });
+  activate();
+});
+</script>
+</body>
+</html>

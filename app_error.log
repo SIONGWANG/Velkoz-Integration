@@ -1,0 +1,19 @@
+2026-05-26 14:43:27,956 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:30,249 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:33,459 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:34,130 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:34,780 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:39,332 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:40,280 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:40,929 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:43,407 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:44,066 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:55,236 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:55,886 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-05-26 14:43:56,550 [WARNING] fsync 失败: E:\数乘乘美学编辑版A测1.3.1\02_Distributed\汪培\_质检记录\123\【完成验收】汪培.csv.tmp
+2026-06-27 19:30:31,106 [ERROR] Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "asyncio\events.py", line 84, in _run
+  File "asyncio\proactor_events.py", line 165, in _call_connection_lost
+ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
