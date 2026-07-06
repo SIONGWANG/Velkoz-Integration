@@ -186,7 +186,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             self._run_old3col_layout(group)
 
     def _run_topbar_layout(self, group):
-        """顶部通栏布局：Ribbon工具栏 + 中B + 右C（左侧列表可折叠）"""
+        """顶部通栏布局：Ribbon工具栏 + 中B + 右C（文件列表在C区顶部）"""
         # ── 顶部展开按钮（收起时显示） ──
         collapsed = st.session_state.get('topbar_collapsed', False)
         if collapsed:
@@ -198,35 +198,19 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             with st.container(border=True):
                 self.render_topbar()
 
-        # ── 左侧列表折叠开关 ──
-        sidebar_visible = st.session_state.get('sidebar_visible', False)
-        sidebar_label = "📂 隐藏列表" if sidebar_visible else "📂 文件列表"
-        if st.button(sidebar_label, key="sidebar_toggle", use_container_width=False):
-            st.session_state.sidebar_visible = not sidebar_visible
-            st.rerun()
+        # ── 主体区域：B + C ──
+        b_width = st.session_state.layout_width
+        right_w = max(100 - b_width, 10)
+        col_b, col_c = st.columns([b_width, right_w])
 
-        # ── 主体区域 ──
-        if sidebar_visible:
-            left_w = 12
-            b_width = st.session_state.layout_width
-            right_w = max(100 - left_w - b_width, 10)
-            col_left, col_b, col_c = st.columns([left_w, b_width, right_w])
-
-            with col_left:
+        with col_b:
+            self._render_b_area(group)
+        with col_c:
+            # C区顶部：文件列表（可折叠）
+            with st.expander("📂 文件列表", expanded=False):
                 self.render_sidebar_mini()
-            with col_b:
-                self._render_b_area(group)
-            with col_c:
-                self.render_control_panel(group)
-        else:
-            b_width = st.session_state.layout_width
-            right_w = max(100 - b_width, 10)
-            col_b, col_c = st.columns([b_width, right_w])
-
-            with col_b:
-                self._render_b_area(group)
-            with col_c:
-                self.render_control_panel(group)
+            st.divider()
+            self.render_control_panel(group)
 
     def _render_b_area(self, group):
         """B区渲染（复用）"""
@@ -243,19 +227,15 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         col_b, col_c = st.columns([b_width, right_w])
 
         with col_b:
-            if st.session_state.get('_batch_completed'):
-                self.render_completion_panel()
-            else:
-                with st.container():
-                    self.render_b_image_area(group)
-
+            self._render_b_area(group)
         with col_c:
+            with st.expander("📂 文件列表", expanded=False):
+                self.render_sidebar_mini()
+            st.divider()
             self.render_control_panel(group)
 
-        # ── 底部A区 ──
         st.divider()
         self.render_topbar()
-        self._render_a_zone_panels()
 
     def _run_old3col_layout(self, group):
         """旧版三栏布局：左A + 中B + 右C"""
@@ -265,16 +245,14 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
 
         with col_a:
             self.render_topbar()
-            self._render_a_zone_panels()
 
         with col_b:
-            if st.session_state.get('_batch_completed'):
-                self.render_completion_panel()
-            else:
-                with st.container():
-                    self.render_b_image_area(group)
+            self._render_b_area(group)
 
         with col_c:
+            with st.expander("📂 文件列表", expanded=False):
+                self.render_sidebar_mini()
+            st.divider()
             self.render_control_panel(group)
 
 if __name__ == "__main__":

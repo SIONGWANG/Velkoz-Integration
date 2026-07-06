@@ -158,7 +158,7 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 }
 .bz-linear-row .bz-img-cell img {
     width: 100% !important; height: auto !important;
-    max-height: 55vh !important;
+    max-height: 40vh !important;
     object-fit: contain !important; display: block; border-radius: 4px;
 }
 .bz-img-cell.bz-empty { display: none !important; }
@@ -166,6 +166,8 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 .bz-view-selector { margin-bottom: 4px; }
 /* 强制Streamlit列容器不干扰flex布局 */
 div[data-testid="stHorizontalBlock"] > div { flex-shrink: 1 !important; min-width: 0 !important; }
+/* C区文件列表样式 */
+.bz-c-sidebar { max-height: 300px; overflow-y: auto; }
 /* ═══ 顶部通栏布局 ═══ */
 .bz-topbar {
     background: #f8f9fa; border-bottom: 1px solid #e0e0e0;
