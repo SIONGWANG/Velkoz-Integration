@@ -128,17 +128,6 @@ class ZoneAMixin:
         if filtered_ids and st.session_state.current_id not in filtered_ids:
             st.session_state.current_id = filtered_ids[0]
             st.session_state.focus_img_idx = 0
-        with p3:
-            if st.button("✨ 极简模式", key="preset_min", use_container_width=True):
-                st.session_state.sidebar_visible = False
-                st.session_state.topbar_collapsed = True
-                st.rerun()
-
-        # ── 确保 current_id 在筛选列表中 ──
-        filtered_ids = self._get_filtered_ids(stats['current_status_map'])
-        if filtered_ids and st.session_state.current_id not in filtered_ids:
-            st.session_state.current_id = filtered_ids[0]
-            st.session_state.focus_img_idx = 0
 
     def _render_ribbon_export(self):
         """Ribbon 导出标签：全部导出功能"""

@@ -53,36 +53,35 @@ div[data-testid="stSegmentedControl"] > [data-selected="true"] {
     border-color: #6366f1 !important; background-color: #e0e7ff !important; color: #3730a3 !important; font-weight: 600 !important;
 }
 /* ═══ Ribbon标签栏样式 ═══ */
-.bz-ribbon { display: flex; align-items: center; gap: 0; padding: 4px 8px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; margin-bottom: 6px; }
-.bz-ribbon .stButton > button {
-    padding: 4px 14px !important; font-size: 0.78rem !important; border-radius: 0 !important;
-    border: none !important; border-bottom: 2px solid transparent !important;
-    background: transparent !important; color: #555 !important; font-weight: 400 !important;
-    margin: 0 !important; min-height: 28px !important;
+/* 标签按钮：Office风格底部边框指示器 */
+div[data-testid="stHorizontalBlock"] .stButton > button {
+    border-radius: 4px 4px 0 0 !important;
+    border: 1px solid #e0e0e0 !important;
+    border-bottom: 2px solid transparent !important;
+    background: #f5f5f5 !important;
+    color: #555 !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    padding: 6px 16px !important;
+    min-height: 32px !important;
+    transition: all 0.15s;
 }
-.bz-ribbon .stButton > button:hover { background: #e8eaf6 !important; color: #333 !important; }
-.bz-ribbon .stButton > button[kind="primary"] {
-    color: #4338ca !important; font-weight: 600 !important;
-    border-bottom: 2px solid #6366f1 !important; background: #eef2ff !important;
+div[data-testid="stHorizontalBlock"] .stButton > button:hover {
+    background: #e8eaf6 !important;
+    border-color: #c5cae9 !important;
+    color: #333 !important;
 }
-.bz-ribbon-close { margin-left: auto !important; }
-.bz-ribbon-close .stButton > button {
-    padding: 4px 8px !important; font-size: 0.75rem !important; min-height: 28px !important;
-    border-radius: 4px !important; background: transparent !important; color: #999 !important;
-    border: 1px solid #ddd !important;
+div[data-testid="stHorizontalBlock"] .stButton > button[kind="primary"] {
+    background: #fff !important;
+    border-color: #6366f1 !important;
+    border-bottom: 2px solid #6366f1 !important;
+    color: #4338ca !important;
+    font-weight: 600 !important;
 }
-.bz-ribbon-close .stButton > button:hover { color: #e53e3e !important; border-color: #e53e3e !important; }
-/* Ribbon内容区紧凑 */
-.bz-ribbon-body { padding: 4px 8px; }
-.bz-ribbon-body .stMetric { padding: 4px 8px !important; margin-bottom: 4px !important; }
-.bz-ribbon-body .stMetric p { font-size: 0.7rem !important; }
-.bz-ribbon-body .stMetric div[data-testid="stMetricValue"] { font-size: 0.85rem !important; }
-/* 筛选按钮紧凑 */
-.bz-filter-bar { display: flex; gap: 4px; margin: 4px 0; }
-.bz-filter-bar .stButton > button {
-    padding: 3px 10px !important; font-size: 0.75rem !important; min-height: 26px !important;
-    border-radius: 12px !important;
-}
+/* 统计卡片紧凑 */
+div[data-testid="stMetric"] { padding: 4px 8px !important; margin-bottom: 2px !important; }
+div[data-testid="stMetric"] p { font-size: 0.7rem !important; }
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] { font-size: 0.9rem !important; }
 
 /* stButton — 默认按钮风格 */
 div[data-testid="stButton"] button[kind="secondary"] {
