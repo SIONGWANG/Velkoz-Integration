@@ -145,51 +145,162 @@ div[data-testid="column"]:nth-of-type(2) div[data-testid="stCaptionContainer"] {
 div[data-testid="column"]:nth-of-type(2) div[data-testid="stNotification"] { padding: 0.2rem 0.5rem !important; }
 div[data-testid="column"]:nth-of-type(2) textarea { margin-bottom: -4px !important; }
 div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { margin: 0 !important; }
-/* ═══ 护眼模式（深色主题） ═══ */
+/* ═══ 护眼模式（深色主题 — 柔和护眼配色） ═══ */
+/* 色板: 背景#0f172a 面板#1e293b 边框#334155 文字#e2e8f0 次要文字#94a3b8 高亮#818cf8 */
+/* 全局 */
 html[data-theme="dark"] body,
 html[data-theme="dark"] .stApp,
-html[data-theme="dark"] .main .block-container {
-    background-color: #1a1a2e !important; color: #e0e0e0 !important;
+html[data-theme="dark"] .main .block-container,
+html[data-theme="dark"] section.main,
+html[data-theme="dark"] .block-container {
+    background-color: #0f172a !important; color: #e2e8f0 !important;
 }
-html[data-theme="dark"] div[data-testid="stSidebar"] { background-color: #16213e !important; }
-html[data-theme="dark"] div[data-testid="stMarkdown"] { color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stMetric"] { background-color: #1e293b !important; color: #e0e0e0 !important; }
+/* 侧边栏 */
+html[data-theme="dark"] div[data-testid="stSidebar"],
+html[data-theme="dark"] div[data-testid="stSidebar"] > div {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+}
+/* 所有文字 — 统一保障可读性 */
+html[data-theme="dark"] h1, html[data-theme="dark"] h2, html[data-theme="dark"] h3,
+html[data-theme="dark"] h4, html[data-theme="dark"] h5, html[data-theme="dark"] h6,
+html[data-theme="dark"] p, html[data-theme="dark"] span, html[data-theme="dark"] label,
+html[data-theme="dark"] div, html[data-theme="dark"] caption, html[data-theme="dark"] code {
+    color: #e2e8f0 !important;
+}
+html[data-theme="dark"] .stMarkdown p, html[data-theme="dark"] .stMarkdown li,
+html[data-theme="dark"] .stMarkdown h1, html[data-theme="dark"] .stMarkdown h2,
+html[data-theme="dark"] .stMarkdown h3, html[data-theme="dark"] .stMarkdown h4 {
+    color: #e2e8f0 !important;
+}
+/* 容器/面板/卡片 */
+html[data-theme="dark"] div[data-testid="stVerticalBlock"],
+html[data-theme="dark"] div[data-testid="stHorizontalBlock"],
+html[data-theme="dark"] div[data-testid="column"],
+html[data-theme="dark"] div[data-testid="container"],
+html[data-theme="dark"] div[data-testid="stForm"],
+html[data-theme="dark"] section[data-testid="stSidebar"] {
+    background-color: transparent !important;
+}
+/* 统计卡片 */
+html[data-theme="dark"] div[data-testid="stMetric"] {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+    border: 1px solid #334155 !important;
+}
 html[data-theme="dark"] div[data-testid="stMetric"] p { color: #94a3b8 !important; }
 html[data-theme="dark"] div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #f1f5f9 !important; }
+html[data-theme="dark"] div[data-testid="stMetric"] div[data-testid="stMetricDelta"] { color: #a5b4fc !important; }
+/* 按钮 */
 html[data-theme="dark"] div[data-testid="stButton"] button[kind="secondary"] {
-    background-color: #1e293b !important; color: #cbd5e1 !important; border-color: #334155 !important;
+    background-color: #1e293b !important; color: #cbd5e1 !important; border-color: #475569 !important;
 }
 html[data-theme="dark"] div[data-testid="stButton"] button[kind="secondary"]:hover {
-    background-color: #334155 !important; border-color: #6366f1 !important; color: #fff !important;
+    background-color: #334155 !important; border-color: #818cf8 !important; color: #f1f5f9 !important;
 }
 html[data-theme="dark"] div[data-testid="stButton"] button[kind="primary"] {
     background-color: #312e81 !important; color: #c7d2fe !important; border-color: #6366f1 !important;
 }
-html[data-theme="dark"] div[data-testid="stSelectbox"] > div > div { background-color: #1e293b !important; color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stTextInput"] > div > div > input { background-color: #1e293b !important; color: #e0e0e0 !important; border-color: #334155 !important; }
-html[data-theme="dark"] div[data-testid="stTextArea"] > div > div > textarea { background-color: #1e293b !important; color: #e0e0e0 !important; border-color: #334155 !important; }
-html[data-theme="dark"] div[data-testid="stRadio"] > label { color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stRadio"] > label > p { color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stCheckbox"] > label { color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stCheckbox"] > label > p { color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stExpander"] { background-color: #1e293b !important; border-color: #334155 !important; }
-html[data-theme="dark"] div[data-testid="stExpander"] summary { color: #e0e0e0 !important; }
-html[data-theme="dark"] div[data-testid="stSuccess"] { background-color: #064e3b !important; }
-html[data-theme="dark"] div[data-testid="stError"] { background-color: #7f1d1d !important; }
-html[data-theme="dark"] div[data-testid="stWarning"] { background-color: #78350f !important; }
-html[data-theme="dark"] div[data-testid="stInfo"] { background-color: #1e3a5f !important; }
+html[data-theme="dark"] div[data-testid="stButton"] button[kind="primary"]:hover {
+    background-color: #3730a3 !important; color: #e0e7ff !important;
+}
+html[data-theme="dark"] div[data-testid="stButton"] button:disabled {
+    background-color: #1e293b !important; color: #475569 !important; border-color: #334155 !important;
+}
+/* 输入框 */
+html[data-theme="dark"] div[data-testid="stTextInput"] > div > div > input,
+html[data-theme="dark"] div[data-testid="stNumberInput"] > div > div > input {
+    background-color: #1e293b !important; color: #e2e8f0 !important; border-color: #475569 !important;
+}
+html[data-theme="dark"] div[data-testid="stTextArea"] > div > div > textarea {
+    background-color: #1e293b !important; color: #e2e8f0 !important; border-color: #475569 !important;
+}
+/* 选择框/下拉 */
+html[data-theme="dark"] div[data-testid="stSelectbox"] > div > div,
+html[data-theme="dark"] div[data-testid="stMultiSelect"] > div > div {
+    background-color: #1e293b !important; color: #e2e8f0 !important; border-color: #475569 !important;
+}
+html[data-theme="dark"] div[data-testid="stSelectbox"] [data-baseweb="select"] {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+}
+/* 单选/多选/checkbox */
+html[data-theme="dark"] div[data-testid="stRadio"] > label,
+html[data-theme="dark"] div[data-testid="stRadio"] > label > p,
+html[data-theme="dark"] div[data-testid="stCheckbox"] > label,
+html[data-theme="dark"] div[data-testid="stCheckbox"] > label > p,
+html[data-theme="dark"] div[data-testid="stCheckbox"] span,
+html[data-theme="dark"] div[data-testid="stRadio"] span,
+html[data-theme="dark"] div[data-testid="stPills"] label,
+html[data-theme="dark"] div[data-testid="stPills"] button {
+    color: #e2e8f0 !important;
+}
+/* Pills / SegmentedControl */
+html[data-theme="dark"] div[data-testid="stPills"] > button,
+html[data-theme="dark"] div[data-testid="stPills"] > label {
+    background-color: #1e293b !important; color: #cbd5e1 !important; border-color: #475569 !important;
+}
+html[data-theme="dark"] div[data-testid="stPills"] > [aria-checked="true"],
+html[data-theme="dark"] div[data-testid="stPills"] > button[aria-checked="true"] {
+    background-color: #312e81 !important; color: #c7d2fe !important; border-color: #6366f1 !important;
+}
+html[data-theme="dark"] div[data-testid="stSegmentedControl"] > * {
+    background-color: #1e293b !important; color: #cbd5e1 !important; border-color: #475569 !important;
+}
+html[data-theme="dark"] div[data-testid="stSegmentedControl"] > [data-selected="true"] {
+    background-color: #312e81 !important; color: #c7d2fe !important; border-color: #6366f1 !important;
+}
+/* Expander */
+html[data-theme="dark"] div[data-testid="stExpander"],
+html[data-theme="dark"] details[data-testid="stExpander"] {
+    background-color: #1e293b !important; border-color: #334155 !important;
+}
+html[data-theme="dark"] div[data-testid="stExpander"] summary,
+html[data-theme="dark"] details[data-testid="stExpander"] summary {
+    color: #e2e8f0 !important;
+}
+html[data-theme="dark"] details[open] > summary { border-bottom-color: #334155 !important; }
+/* 通知/提示 */
+html[data-theme="dark"] div[data-testid="stSuccess"] {
+    background-color: #064e3b !important; color: #a7f3d0 !important; border-color: #10b981 !important;
+}
+html[data-theme="dark"] div[data-testid="stError"] {
+    background-color: #7f1d1d !important; color: #fecaca !important; border-color: #ef4444 !important;
+}
+html[data-theme="dark"] div[data-testid="stWarning"] {
+    background-color: #78350f !important; color: #fde68a !important; border-color: #f59e0b !important;
+}
+html[data-theme="dark"] div[data-testid="stInfo"] {
+    background-color: #1e3a5f !important; color: #bae6fd !important; border-color: #38bdf8 !important;
+}
+html[data-theme="dark"] div[data-testid="stException"] {
+    background-color: #7f1d1d !important; color: #fecaca !important;
+}
+/* 进度条 */
+html[data-theme="dark"] div[data-testid="stProgress"] > div > div {
+    background-color: #334155 !important;
+}
+html[data-theme="dark"] div[data-testid="stProgress"] > div > div > div {
+    background-color: #6366f1 !important;
+}
+html[data-theme="dark"] div[data-testid="stProgress"] caption { color: #94a3b8 !important; }
+/* 分隔线 */
 html[data-theme="dark"] hr { border-color: #334155 !important; }
-html[data-theme="dark"] div[data-testid="stProgress"] > div > div { background-color: #334155 !important; }
-html[data-theme="dark"] div[data-testid="stProgress"] > div > div > div { background-color: #6366f1 !important; }
+/* Tabs */
 html[data-theme="dark"] .stTabs [data-baseweb="tab-list"] { background-color: #1e293b !important; }
 html[data-theme="dark"] .stTabs [data-baseweb="tab"] { color: #94a3b8 !important; }
 html[data-theme="dark"] .stTabs [aria-selected="true"] { color: #c7d2fe !important; border-bottom-color: #6366f1 !important; }
-html[data-theme="dark"] details[data-testid="stExpander"] { background-color: #1e293b !important; border-color: #334155 !important; }
-html[data-theme="dark"] details[data-testid="stExpander"] summary { color: #e0e0e0 !important; }
-/* 深色模式下图片区域背景 */
+html[data-theme="dark"] .stTabs [data-baseweb="tab-border"] { background-color: #6366f1 !important; }
+/* 代码块 */
+html[data-theme="dark"] pre, html[data-theme="dark"] code {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+}
+html[data-theme="dark"] pre { border-color: #334155 !important; }
+/* 表格 */
+html[data-theme="dark"] table, html[data-theme="dark"] th, html[data-theme="dark"] td {
+    background-color: #1e293b !important; color: #e2e8f0 !important; border-color: #334155 !important;
+}
+/* 图片区域 */
 html[data-theme="dark"] .bz-img-cell { background-color: #0f172a !important; }
 html[data-theme="dark"] .bz-img-info { color: #94a3b8 !important; }
-/* 深色模式下状态按钮颜色适配 */
+/* 状态按钮 */
 html[data-theme="dark"] button[data-status="pass"] { background-color: #064e3b !important; color: #6ee7b7 !important; border-color: #10b981 !important; }
 html[data-theme="dark"] button[data-status="fail"] { background-color: #7f1d1d !important; color: #fca5a5 !important; border-color: #ef4444 !important; }
 html[data-theme="dark"] button[data-status="modified"] { background-color: #1e3a5f !important; color: #93c5fd !important; border-color: #3b82f6 !important; }
@@ -198,6 +309,18 @@ html[data-theme="dark"] button[data-status="pass"][kind="primary"] { background-
 html[data-theme="dark"] button[data-status="fail"][kind="primary"] { background-color: #b91c1c !important; color: #fff !important; }
 html[data-theme="dark"] button[data-status="modified"][kind="primary"] { background-color: #1d4ed8 !important; color: #fff !important; }
 html[data-theme="dark"] button[data-status="pending"][kind="primary"] { background-color: #a16207 !important; color: #fff !important; }
+/* 滚动条 */
+html[data-theme="dark"] ::-webkit-scrollbar { background: #1e293b !important; }
+html[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #475569 !important; border-radius: 4px !important; }
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #64748b !important; }
+/* 图片预览iframe内联样式覆盖 */
+html[data-theme="dark"] iframe { background-color: #0f172a !important; }
+/* Streamlit默认白色残留清除 */
+html[data-theme="dark"] .stApp > header { background-color: #0f172a !important; }
+html[data-theme="dark"] footer { background-color: #0f172a !important; }
+html[data-theme="dark"] div[data-testid="stToolbar"] { background-color: #0f172a !important; }
+html[data-theme="dark"] div[data-testid="stStatusWidget"] { background-color: #0f172a !important; }
+html[data-theme="dark"] .stDeployButton { background-color: #0f172a !important; }
 /* ═══ B区分层布局 ═══ */
 .bz-split-container { display: flex; flex-direction: column; height: 100%; position: relative; }
 .bz-image-area {
