@@ -34,110 +34,100 @@ class ZoneAMixin:
         if not groups:
             return
 
-        # ── Ribbon 标签栏 ──
-        tabs = ["🏠 首页", "📤 导出", "🔧 工具", "⚙️ 设置"]
-        active_tab = st.session_state.get('ribbon_tab', '🏠 首页')
-        tab_cols = st.columns(len(tabs) + 1)
-        for i, tab in enumerate(tabs):
+        # ── Ribbon 标签栏（紧凑一行） ──
+        active_tab = st.session_state.get('ribbon_tab', '首页')
+        tab_labels = ['首页', '导出', '工具', '设置']
+        tab_cols = st.columns([1.2, 1.2, 1.2, 1.2, 0.5])
+        for i, label in enumerate(tab_labels):
             with tab_cols[i]:
-                if st.button(tab, key=f"ribbon_{i}",
-                             type="primary" if active_tab == tab else "secondary",
+                is_active = (active_tab == label)
+                if st.button(label, key=f"ribbon_{label}",
+                             type="primary" if is_active else "secondary",
                              use_container_width=True,
-                             on_click=lambda _t=tab: st.session_state.update({'ribbon_tab': _t})):
+                             on_click=lambda _l=label: st.session_state.update({'ribbon_tab': _l})):
                     pass
-        with tab_cols[len(tabs)]:
-            if st.button("✕", key="ribbon_collapse", use_container_width=False,
+        with tab_cols[4]:
+            if st.button("✕", key="ribbon_close", use_container_width=True,
                          help="收起工具栏"):
                 st.session_state.topbar_collapsed = True
                 st.rerun()
 
-        st.divider()
-
         # ── 根据标签渲染内容 ──
-        if active_tab == "🏠 首页":
+        if active_tab == "首页":
             self._render_ribbon_home()
-        elif active_tab == "📤 导出":
+        elif active_tab == "导出":
             self._render_ribbon_export()
-        elif active_tab == "🔧 工具":
+        elif active_tab == "工具":
             self._render_ribbon_tools()
-        elif active_tab == "⚙️ 设置":
+        elif active_tab == "设置":
             self._render_ribbon_settings()
 
     def _render_ribbon_home(self):
-        """Ribbon 首页：统计 + 筛选 + 历史选择 + 布局预设"""
+        """Ribbon 首页：统计 + 筛选 + 历史选择 + 布局预设（紧凑布局）"""
         groups = st.session_state.data_groups
         all_ids = list(dict.fromkeys(g['id'] for g in groups))
 
-        # ── 历史批次选择器 ──
+        # ── 第一行：历史选择 + 统计 + 预设（单行紧凑） ──
         csv_list = self._get_all_csv_paths()
-        if csv_list:
-            csv_options = ["📅 全量历史数据（合并）"]
-            csv_paths = ["_merged_"]
-            for date_str, path in csv_list:
-                csv_options.append(f"📋 {os.path.basename(path)}")
-                csv_paths.append(path)
+        row1 = st.columns([3, 1.5, 1.5, 1.5, 1.5, 1, 1, 1])
 
-            current_sel = st.session_state.get('selected_csv')
-            init_idx = csv_paths.index(current_sel) if current_sel and current_sel in csv_paths else 0
+        # 历史选择器
+        with row1[0]:
+            if csv_list:
+                csv_options = ["全部历史"] + [os.path.basename(p) for _, p in csv_list]
+                csv_paths = ["_merged_"] + [p for _, p in csv_list]
+                current_sel = st.session_state.get('selected_csv')
+                init_idx = csv_paths.index(current_sel) if current_sel and current_sel in csv_paths else 0
+                chosen = st.selectbox("数据源", csv_options, index=init_idx,
+                                      key="ribbon_csv", label_visibility="collapsed")
+                new_sel = csv_paths[csv_options.index(chosen)]
+                if new_sel != st.session_state.get('selected_csv'):
+                    st.session_state.selected_csv = new_sel
+                    self._invalidate_merged_cache()
+                    st.session_state.last_loaded_id = None
+                    st.rerun()
+            else:
+                st.caption("无历史数据")
 
-            chosen = st.selectbox("📂 质检数据源", csv_options, index=init_idx,
-                                  key="ribbon_csv_sel", label_visibility="collapsed")
-            new_sel = csv_paths[csv_options.index(chosen)]
-            if new_sel != st.session_state.get('selected_csv'):
-                st.session_state.selected_csv = new_sel
-                self._invalidate_merged_cache()
-                st.session_state.last_loaded_id = None
-                st.rerun()
-
-            stats_mode = st.session_state.get('history_stats_mode', 'merged')
-            mc1, mc2 = st.columns(2)
-            with mc1:
-                if st.button("📊 全量统计", key="r_stats_m",
-                             type="primary" if stats_mode == 'merged' else "secondary",
-                             use_container_width=True,
-                             on_click=lambda: st.session_state.update({'history_stats_mode': 'merged', 'selected_csv': '_merged_'})):
-                    pass
-            with mc2:
-                if st.button("📋 当日批次", key="r_stats_t",
-                             type="primary" if stats_mode == 'single' else "secondary",
-                             use_container_width=True,
-                             on_click=lambda: st.session_state.update({'history_stats_mode': 'single', 'selected_csv': None})):
-                    pass
-
-        # ── 统计卡片 ──
+        # 统计卡片（紧凑）
         status_map = self.get_record_status_map(self._get_active_csv_path())
         stats = self._compute_stats(all_ids, status_map)
+        with row1[1]: st.metric("合格", stats['qualified'])
+        with row1[2]: st.metric("修改后", stats['modified'])
+        with row1[3]: st.metric("不合格", stats['unqualified'])
+        with row1[4]: st.metric("合格率", f"{stats['pass_rate']}%")
 
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("🟢 合格", stats['qualified'])
-        with c2: st.metric("🔵 修改后合格", stats['modified'])
-        with c3: st.metric("🔴 不合格", stats['unqualified'])
-        with c4: st.metric("📊 合格率", f"{stats['pass_rate']}%")
+        # 预设按钮
+        with row1[5]:
+            if st.button("全屏", key="p_fs", use_container_width=True, help="最大化图片区域"):
+                st.session_state.topbar_collapsed = True
+                st.rerun()
+        with row1[6]:
+            if st.button("标准", key="p_std", use_container_width=True, help="标准质检布局"):
+                st.session_state.topbar_collapsed = False
+                st.rerun()
+        with row1[7]:
+            if st.button("极简", key="p_min", use_container_width=True, help="仅图片+文本"):
+                st.session_state.topbar_collapsed = True
+                st.rerun()
 
-        # ── 筛选按钮 ──
+        # ── 第二行：筛选按钮（紧凑药丸样式） ──
         filter_options = ["全部", "未检", "合格", "修改后合格", "不合格", "待定"]
         current_filter = st.session_state.get('filter_pills', '全部')
-        cols = st.columns(6)
+        filter_cols = st.columns(6)
         for i, opt in enumerate(filter_options):
-            with cols[i]:
+            with filter_cols[i]:
                 is_sel = (current_filter == opt)
                 if st.button(opt, key=f"fbtn_{opt}", use_container_width=True,
                              type="primary" if is_sel else "secondary",
                              on_click=lambda _o=opt: st.session_state.update({'filter_pills': _o})):
                     pass
 
-        # ── 布局预设 ──
-        p1, p2, p3 = st.columns(3)
-        with p1:
-            if st.button("🖥️ 全屏看图", key="preset_fs", use_container_width=True):
-                st.session_state.sidebar_visible = False
-                st.session_state.topbar_collapsed = True
-                st.rerun()
-        with p2:
-            if st.button("📋 标准质检", key="preset_std", use_container_width=True):
-                st.session_state.sidebar_visible = False
-                st.session_state.topbar_collapsed = False
-                st.rerun()
+        # 确保 current_id 在筛选列表中
+        filtered_ids = self._get_filtered_ids(stats['current_status_map'])
+        if filtered_ids and st.session_state.current_id not in filtered_ids:
+            st.session_state.current_id = filtered_ids[0]
+            st.session_state.focus_img_idx = 0
         with p3:
             if st.button("✨ 极简模式", key="preset_min", use_container_width=True):
                 st.session_state.sidebar_visible = False
