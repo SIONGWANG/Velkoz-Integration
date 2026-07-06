@@ -1,4 +1,4 @@
-# zone_a.py — A区渲染方法，拆分为顶部通栏 + 左侧精简文件列表
+# zone_a.py — A区渲染方法：Ribbon多标签工具栏 + 左侧精简文件列表
 import streamlit as st
 import streamlit.components.v1 as components
 import os
@@ -8,7 +8,7 @@ from utils import BASE_DIR, parse_csv_date
 
 
 class ZoneAMixin:
-    """A 区：顶部通栏(统计+筛选+导出+设置) + 左侧精简文件列表"""
+    """A 区：Ribbon多标签工具栏(首页/导出/工具/设置) + 左侧精简文件列表"""
 
     def _compute_stats(self, all_ids, status_map):
         """计算统计数据，返回 dict"""
@@ -29,11 +29,43 @@ class ZoneAMixin:
 
     @st.fragment
     def render_topbar(self):
-        """顶部通栏：统计卡片 + 筛选 + 历史选择 + 数据源信息"""
+        """Ribbon多标签工具栏：首页/导出/工具/设置"""
         groups = st.session_state.data_groups
         if not groups:
             return
 
+        # ── Ribbon 标签栏 ──
+        tabs = ["🏠 首页", "📤 导出", "🔧 工具", "⚙️ 设置"]
+        active_tab = st.session_state.get('ribbon_tab', '🏠 首页')
+        tab_cols = st.columns(len(tabs) + 1)
+        for i, tab in enumerate(tabs):
+            with tab_cols[i]:
+                if st.button(tab, key=f"ribbon_{i}",
+                             type="primary" if active_tab == tab else "secondary",
+                             use_container_width=True,
+                             on_click=lambda _t=tab: st.session_state.update({'ribbon_tab': _t})):
+                    pass
+        with tab_cols[len(tabs)]:
+            if st.button("✕", key="ribbon_collapse", use_container_width=False,
+                         help="收起工具栏"):
+                st.session_state.topbar_collapsed = True
+                st.rerun()
+
+        st.divider()
+
+        # ── 根据标签渲染内容 ──
+        if active_tab == "🏠 首页":
+            self._render_ribbon_home()
+        elif active_tab == "📤 导出":
+            self._render_ribbon_export()
+        elif active_tab == "🔧 工具":
+            self._render_ribbon_tools()
+        elif active_tab == "⚙️ 设置":
+            self._render_ribbon_settings()
+
+    def _render_ribbon_home(self):
+        """Ribbon 首页：统计 + 筛选 + 历史选择 + 布局预设"""
+        groups = st.session_state.data_groups
         all_ids = list(dict.fromkeys(g['id'] for g in groups))
 
         # ── 历史批次选择器 ──
@@ -42,23 +74,15 @@ class ZoneAMixin:
             csv_options = ["📅 全量历史数据（合并）"]
             csv_paths = ["_merged_"]
             for date_str, path in csv_list:
-                basename = os.path.basename(path)
-                csv_options.append(f"📋 {basename}")
+                csv_options.append(f"📋 {os.path.basename(path)}")
                 csv_paths.append(path)
 
             current_sel = st.session_state.get('selected_csv')
-            if current_sel and current_sel in csv_paths:
-                init_idx = csv_paths.index(current_sel)
-            else:
-                init_idx = 0
+            init_idx = csv_paths.index(current_sel) if current_sel and current_sel in csv_paths else 0
 
-            chosen = st.selectbox(
-                "📂 质检数据源",
-                csv_options, index=init_idx,
-                key="topbar_csv_selector", label_visibility="collapsed"
-            )
-            chosen_idx = csv_options.index(chosen)
-            new_sel = csv_paths[chosen_idx]
+            chosen = st.selectbox("📂 质检数据源", csv_options, index=init_idx,
+                                  key="ribbon_csv_sel", label_visibility="collapsed")
+            new_sel = csv_paths[csv_options.index(chosen)]
             if new_sel != st.session_state.get('selected_csv'):
                 st.session_state.selected_csv = new_sel
                 self._invalidate_merged_cache()
@@ -66,30 +90,23 @@ class ZoneAMixin:
                 st.rerun()
 
             stats_mode = st.session_state.get('history_stats_mode', 'merged')
-            mode_c1, mode_c2 = st.columns(2)
-            with mode_c1:
-                if st.button("📊 全量统计", key="tb_stats_merged",
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                if st.button("📊 全量统计", key="r_stats_m",
                              type="primary" if stats_mode == 'merged' else "secondary",
                              use_container_width=True,
                              on_click=lambda: st.session_state.update({'history_stats_mode': 'merged', 'selected_csv': '_merged_'})):
                     pass
-            with mode_c2:
-                if st.button("📋 当日批次", key="tb_stats_today",
+            with mc2:
+                if st.button("📋 当日批次", key="r_stats_t",
                              type="primary" if stats_mode == 'single' else "secondary",
                              use_container_width=True,
                              on_click=lambda: st.session_state.update({'history_stats_mode': 'single', 'selected_csv': None})):
                     pass
 
-        # ── 统计卡片（横向4列） ──
+        # ── 统计卡片 ──
         status_map = self.get_record_status_map(self._get_active_csv_path())
         stats = self._compute_stats(all_ids, status_map)
-
-        stats_mode = st.session_state.get('history_stats_mode', 'merged')
-        if stats_mode == 'merged' and csv_list and len(csv_list) > 1:
-            st.caption(f"📊 全量统计: 合并 {len(csv_list)} 个CSV文件")
-        elif stats_mode == 'single' and st.session_state.get('selected_csv'):
-            sel_name = os.path.basename(st.session_state['selected_csv'])
-            st.caption(f"📋 单日批次: {sel_name}")
 
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.metric("🟢 合格", stats['qualified'])
@@ -97,16 +114,7 @@ class ZoneAMixin:
         with c3: st.metric("🔴 不合格", stats['unqualified'])
         with c4: st.metric("📊 合格率", f"{stats['pass_rate']}%")
 
-        c5, c6, c7, c8 = st.columns(4)
-        with c5: st.metric("⚪ 未检", stats['unchecked'])
-        with c6: st.metric("🟡 待定", stats['pending'])
-        with c7: st.metric("📦 总计", stats['total'])
-        with c8:
-            done = stats['qualified'] + stats['modified'] + stats['unqualified'] + stats['pending']
-            progress = min(1.0, done / stats['total']) if stats['total'] > 0 else 0
-            st.progress(progress, text=f"{done}/{stats['total']} ({int(progress*100)}%)")
-
-        # ── 筛选按钮（横向6个） ──
+        # ── 筛选按钮 ──
         filter_options = ["全部", "未检", "合格", "修改后合格", "不合格", "待定"]
         current_filter = st.session_state.get('filter_pills', '全部')
         cols = st.columns(6)
@@ -115,15 +123,74 @@ class ZoneAMixin:
                 is_sel = (current_filter == opt)
                 if st.button(opt, key=f"fbtn_{opt}", use_container_width=True,
                              type="primary" if is_sel else "secondary",
-                             on_click=lambda _opt=opt: st.session_state.update({'filter_pills': _opt})):
+                             on_click=lambda _o=opt: st.session_state.update({'filter_pills': _o})):
                     pass
 
+        # ── 布局预设 ──
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            if st.button("🖥️ 全屏看图", key="preset_fs", use_container_width=True):
+                st.session_state.sidebar_visible = False
+                st.session_state.topbar_collapsed = True
+                st.rerun()
+        with p2:
+            if st.button("📋 标准质检", key="preset_std", use_container_width=True):
+                st.session_state.sidebar_visible = False
+                st.session_state.topbar_collapsed = False
+                st.rerun()
+        with p3:
+            if st.button("✨ 极简模式", key="preset_min", use_container_width=True):
+                st.session_state.sidebar_visible = False
+                st.session_state.topbar_collapsed = True
+                st.rerun()
+
         # ── 确保 current_id 在筛选列表中 ──
-        filter_val = st.session_state.get('filter_pills', '全部')
         filtered_ids = self._get_filtered_ids(stats['current_status_map'])
         if filtered_ids and st.session_state.current_id not in filtered_ids:
             st.session_state.current_id = filtered_ids[0]
             st.session_state.focus_img_idx = 0
+
+    def _render_ribbon_export(self):
+        """Ribbon 导出标签：全部导出功能"""
+        self.render_inspection_panel()
+        st.divider()
+        self.render_export_panel()
+
+    def _render_ribbon_tools(self):
+        """Ribbon 工具标签：AI预识别 + 分类管理"""
+        # ── AI 预识别 ──
+        with st.expander("🤖 AI 预识别", expanded=True):
+            import pandas as pd
+            from disk_io import load_qa_report
+            uploaded_qa = st.file_uploader("手动上传以切换 (可选)", type=['csv'], label_visibility="collapsed")
+            if uploaded_qa is not None:
+                try:
+                    st.session_state.qa_df = pd.read_csv(uploaded_qa, dtype=str, encoding='utf-8-sig')
+                    st.session_state.qa_source = f"手动切换: {uploaded_qa.name}"
+                except Exception as e:
+                    st.error(f"读取失败: {e}")
+            else:
+                default_qa_path = os.path.join(st.session_state.root_path, "final_report.csv") if st.session_state.root_path else ""
+                if default_qa_path and os.path.exists(default_qa_path):
+                    st.session_state.qa_df = load_qa_report(default_qa_path)
+                    st.session_state.qa_source = "默认文件: final_report.csv"
+                else:
+                    st.session_state.qa_df = pd.DataFrame()
+                    st.session_state.qa_source = "⚠️ 未加载"
+
+            if st.session_state.get('_qa_load_failed'):
+                st.warning(f"⚠️ QA报告加载失败")
+            if not st.session_state.qa_df.empty:
+                st.success(st.session_state.qa_source)
+            else:
+                st.info(st.session_state.qa_source)
+
+        st.divider()
+        self.render_category_manager()
+
+    def _render_ribbon_settings(self):
+        """Ribbon 设置标签：布局 + 图片缩放 + 全局参数"""
+        self._render_settings_panel(show_datasource=True)
 
     @st.fragment
     def render_sidebar_mini(self):
@@ -229,7 +296,6 @@ class ZoneAMixin:
         if total_pages > 1:
             st.caption(f"第 {current_page}/{total_pages} 页 (共 {total_items} 项)")
 
-        # 滚动到选中项
         components.html("""
         <script>
         (function() {

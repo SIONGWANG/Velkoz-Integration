@@ -354,6 +354,8 @@ class ZoneBMixin:
     @st.fragment
     def render_b_image_area(self, group):
         """B 区图片渲染 — 1×N单行横向平铺 + 上下分层布局"""
+        import base64
+
         img_groups = st.session_state.data_groups
         all_ids_b = [g['id'] for g in img_groups]
         curr_idx_b = all_ids_b.index(st.session_state.current_id) if st.session_state.current_id in all_ids_b else 0
@@ -376,8 +378,9 @@ class ZoneBMixin:
         images = group['images']
         num_images = len(images)
 
-        # ── 视图模式选择器：仅双图/四图 ──
+        # ── 视图模式 + 缩放滑块 ──
         current_view = st.session_state.get('bz_view_mode', '自动')
+        bz_ratio = st.session_state.get('bz_image_ratio', 65)
         vc1, vc2, vc3 = st.columns(3)
         with vc1:
             if st.button("🔍 自动", key=f"bv_auto_{group['id']}",
@@ -409,25 +412,26 @@ class ZoneBMixin:
 
         # ── 上层：1×N 单行横向图片预览 ──
         display_images = images[:actual_cols]
-        html_parts = ['<div class="bz-linear-row">']
+        # 动态计算容器高度：视口65% - 进度条 - 按钮栏
+        container_h = int(600 * bz_ratio / 65)
+        html_parts = [f'<div class="bz-linear-row" style="min-height:{container_h}px;">']
         for i, img in enumerate(display_images):
             p = os.path.join(group['root'], img)
             img_bytes, res = get_display_image_bytes(p)
-            # 将图片转为 base64 嵌入
-            import base64
             b64 = base64.b64encode(img_bytes).decode() if isinstance(img_bytes, bytes) else ''
             suffix = os.path.splitext(img)[0].replace(group['id'], '').strip('_')
             label = f"图{i+1}" if not suffix else suffix
             html_parts.append(f'''
             <div class="bz-img-cell">
-                <img src="data:image/jpeg;base64,{b64}" alt="{img}" title="双击打开: {img}" />
+                <img src="data:image/jpeg;base64,{b64}" alt="{img}" title="双击打开: {img}"
+                     style="max-height:{container_h - 40}px;" />
                 <div class="bz-img-info">
                     <span>{label} | {res}</span>
                     <span style="opacity:0.5; font-size:0.7rem;">📂 双击打开</span>
                 </div>
             </div>''')
         html_parts.append('</div>')
-        components.html(''.join(html_parts), height=420)
+        components.html(''.join(html_parts), height=container_h + 10)
 
         # Streamlit 图片按钮（用于双击触发打开）
         img_cols = st.columns(min(actual_cols, len(display_images)))

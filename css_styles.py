@@ -131,8 +131,10 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 .bz-divider {
     height: 6px; background: #e0e0e0; cursor: ns-resize; position: relative;
     border-radius: 3px; margin: 2px 0; flex-shrink: 0; z-index: 10;
+    transition: background 0.15s;
 }
 .bz-divider:hover, .bz-divider:active { background: #6366f1; }
+.bz-image-area { transition: flex 0.05s ease-out; }
 .bz-divider::after {
     content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     width: 20px; height: 2px; background: #999; border-radius: 1px;
@@ -145,20 +147,25 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 .bz-bottom-area textarea { min-height: 50px !important; }
 /* ═══ 1×N 单行横向图片布局 ═══ */
 .bz-linear-row {
-    display: flex; flex-direction: row; gap: 6px; width: 100%;
-    align-items: flex-start; justify-content: center;
+    display: flex; flex-direction: row; gap: 4px; width: 100%;
+    align-items: stretch; justify-content: center;
 }
 .bz-linear-row .bz-img-cell {
-    flex: 1 1 0; min-width: 0; position: relative; overflow: hidden; border-radius: 4px;
+    flex: 1 1 0; min-width: 0; position: relative; border-radius: 4px;
     display: flex; flex-direction: column; align-items: center;
+    overflow: visible !important; /* 不裁切图片 */
 }
 .bz-linear-row .bz-img-cell img {
-    width: 100%; height: auto; max-height: calc(100vh * var(--bz-image-ratio, 65) / 100 - 100px);
+    width: 100% !important; height: auto !important;
+    max-height: calc(100vh * var(--bz-image-ratio, 65) / 100 - 60px) !important;
     object-fit: contain !important; display: block; border-radius: 4px;
+    /* 关键：不裁切，完整展示 */
 }
 .bz-img-cell.bz-empty { display: none !important; }
-.bz-img-info { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.75rem; color: #666; }
+.bz-img-info { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.75rem; color: #666; flex-shrink: 0; }
 .bz-view-selector { margin-bottom: 4px; }
+/* 图片缩放控制 */
+.bz-zoom-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.8rem; color: #666; }
 /* ═══ 顶部通栏布局 ═══ */
 .bz-topbar {
     background: #f8f9fa; border-bottom: 1px solid #e0e0e0;

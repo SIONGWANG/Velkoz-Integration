@@ -655,7 +655,7 @@ class SettingsMixin:
         st.divider()
         st.caption("📐 图片区高度比例")
         bz_ratio = st.slider(
-            "图片区占比", min_value=40, max_value=80,
+            "图片区占比", min_value=40, max_value=85,
             value=st.session_state.get('bz_image_ratio', 65),
             key=f"{key_prefix}bz_ratio_slider",
             help="调节图片预览区占B区的高度比例（%），剩余空间为文本+AI质检区"

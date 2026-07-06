@@ -300,6 +300,7 @@ class DataMixin:
         st.session_state.pop('topbar_collapsed', None)
         st.session_state.pop('sidebar_visible', None)
         st.session_state.pop('sidebar_width', None)
+        st.session_state.pop('ribbon_tab', None)
 
     # ── CSV 路径 ──
 

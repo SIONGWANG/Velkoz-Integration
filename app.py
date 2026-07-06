@@ -96,50 +96,11 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if 'layout_mode' not in st.session_state: st.session_state.layout_mode = settings.get('layout_mode', 'topbar')
         if 'topbar_collapsed' not in st.session_state: st.session_state.topbar_collapsed = False
         if 'sidebar_visible' not in st.session_state: st.session_state.sidebar_visible = False
+        if 'ribbon_tab' not in st.session_state: st.session_state.ribbon_tab = '🏠 首页'
 
     def _render_a_zone_panels(self):
-        """渲染A区的非统计面板（导出、AI预识别、设置、分类管理）"""
-        self.render_inspection_panel()
-
-        st.divider()
-        self.render_export_panel()
-
-        # ── AI 预识别 ──
-        st.divider()
-        with st.expander("🤖 AI 预识别", expanded=False):
-            uploaded_qa = st.file_uploader("手动上传以切换 (可选)", type=['csv'], label_visibility="collapsed",
-                                           help="如果不上传，默认读取上方文件夹中的 final_report.csv")
-            if uploaded_qa is not None:
-                try:
-                    st.session_state.qa_df = pd.read_csv(uploaded_qa, dtype=str, encoding='utf-8-sig')
-                    st.session_state.qa_source = f"手动切换: {uploaded_qa.name}"
-                except Exception as e:
-                    st.error(f"读取失败: {e}")
-            else:
-                default_qa_path = os.path.join(st.session_state.root_path, "final_report.csv") if st.session_state.root_path else ""
-                if default_qa_path and os.path.exists(default_qa_path):
-                    st.session_state.qa_df = load_qa_report(default_qa_path)
-                    st.session_state.qa_source = f"默认文件: final_report.csv"
-                else:
-                    st.session_state.qa_df = pd.DataFrame()
-                    st.session_state.qa_source = "⚠️ 未加载 (文件夹下无 final_report.csv)"
-
-            if st.session_state.get('_qa_load_failed'):
-                st.warning(f"⚠️ QA报告加载失败，AI预识别功能暂不可用。错误: {st.session_state.get('_qa_load_error', '未知错误')}")
-
-            if not st.session_state.qa_df.empty:
-                st.success(st.session_state.qa_source)
-            else:
-                st.info(st.session_state.qa_source)
-
-        # ── 更多设置 ──
-        st.divider()
-        with st.expander("⚙️ 更多设置", expanded=False):
-            self._render_settings_panel(show_datasource=True)
-
-        # ── 分类管理 ──
-        st.divider()
-        self.render_category_manager()
+        """渲染A区的Ribbon标签内容（由render_topbar处理标签切换）"""
+        pass  # Ribbon标签内容由 zone_a.py 的 render_topbar 内部处理
 
     def run(self):
         version = os.path.basename(BASE_DIR)
@@ -225,18 +186,17 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             self._run_old3col_layout(group)
 
     def _run_topbar_layout(self, group):
-        """顶部通栏布局：A区顶部 + 中B + 右C（左侧列表可折叠）"""
-        # ── 顶部折叠按钮 + 通栏A区 ──
+        """顶部通栏布局：Ribbon工具栏 + 中B + 右C（左侧列表可折叠）"""
+        # ── 顶部展开按钮（收起时显示） ──
         collapsed = st.session_state.get('topbar_collapsed', False)
-        toggle_label = "▶ 展开控制栏" if collapsed else "▼ 收起控制栏"
-        if st.button(toggle_label, key="topbar_toggle", use_container_width=False):
-            st.session_state.topbar_collapsed = not collapsed
-            st.rerun()
+        if collapsed:
+            if st.button("▶ 展开工具栏", key="topbar_toggle", use_container_width=False):
+                st.session_state.topbar_collapsed = False
+                st.rerun()
 
         if not collapsed:
             with st.container(border=True):
                 self.render_topbar()
-                self._render_a_zone_panels()
 
         # ── 左侧列表折叠开关 ──
         sidebar_visible = st.session_state.get('sidebar_visible', False)
