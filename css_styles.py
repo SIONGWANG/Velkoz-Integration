@@ -158,7 +158,7 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 }
 .bz-linear-row .bz-img-cell img {
     width: 100% !important; height: auto !important;
-    max-height: 40vh !important;
+    max-height: 35vh !important;
     object-fit: contain !important; display: block; border-radius: 4px;
 }
 .bz-img-cell.bz-empty { display: none !important; }

@@ -198,10 +198,8 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             with st.container(border=True):
                 self.render_topbar()
 
-        # ── 主体区域：B + C ──
-        b_width = st.session_state.layout_width
-        right_w = max(100 - b_width, 10)
-        col_b, col_c = st.columns([b_width, right_w])
+        # ── 主体区域：B(70%) + C(30%) ──
+        col_b, col_c = st.columns([7, 3])
 
         with col_b:
             self._render_b_area(group)
@@ -222,9 +220,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
 
     def _run_bottom_layout(self, group):
         """底部通栏布局：B+C在上，A区在下"""
-        b_width = st.session_state.layout_width
-        right_w = max(100 - b_width, 10)
-        col_b, col_c = st.columns([b_width, right_w])
+        col_b, col_c = st.columns([7, 3])
 
         with col_b:
             self._render_b_area(group)
@@ -239,9 +235,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
 
     def _run_old3col_layout(self, group):
         """旧版三栏布局：左A + 中B + 右C"""
-        b_width = st.session_state.layout_width
-        remain = (100 - b_width) / 2
-        col_a, col_b, col_c = st.columns([remain, b_width, remain])
+        col_a, col_b, col_c = st.columns([2, 6, 2])
 
         with col_a:
             self.render_topbar()
