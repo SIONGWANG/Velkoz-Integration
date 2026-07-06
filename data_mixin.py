@@ -3,7 +3,6 @@ import streamlit as st
 import os
 import time
 import random
-import datetime
 import logging
 import json
 import hashlib
@@ -12,6 +11,7 @@ import pandas as pd
 from utils import (
     BASE_DIR, DEFAULT_CATEGORIES,
     _load_and_rotate,
+    now_shanghai, today_str, now_str, parse_csv_date,
 )
 from export_utils import get_missing_ids as _export_get_missing_ids
 from disk_io import scan_files_from_disk, preload_next_images
@@ -84,14 +84,20 @@ class DataMixin:
 
     def _get_record_by_id(self, current_id):
         """按 ID 查找历史记录（O(1) 字典查找，切图不再扫全量 DataFrame）"""
-        csv_file = self.get_csv_filename()
-        lookup_key = f"_df_lookup_{csv_file}"
-        lookup = st.session_state.get(lookup_key)
-        if lookup:
-            return lookup.get(str(current_id))
-        # 兜底：缓存不存在时走 DataFrame 扫描
-        df = self._get_df()
-        if not df.empty:
+        csv_path = self._get_active_csv_path()
+        if csv_path == "_merged_":
+            lookup_key = "_df_lookup_merged_all"
+            lookup = st.session_state.get(lookup_key)
+            if lookup:
+                return lookup.get(str(current_id))
+            df = self._get_merged_df()
+        else:
+            lookup_key = f"_df_lookup_{csv_path}"
+            lookup = st.session_state.get(lookup_key)
+            if lookup:
+                return lookup.get(str(current_id))
+            df = self._get_df(csv_path)
+        if not df.empty and '图片ID' in df.columns:
             record = df[df['图片ID'] == str(current_id)]
             if not record.empty:
                 return record.iloc[-1]
@@ -287,19 +293,34 @@ class DataMixin:
         st.session_state.annotator_map = {}
         st.session_state.pop('_sr_working', None)
         st.session_state.pop('selected_csv', None)
+        st.session_state.pop('history_stats_mode', None)
+        st.session_state.pop('bz_view_mode', None)
+        st.session_state.pop('bz_image_ratio', None)
 
     # ── CSV 路径 ──
 
     def _get_active_csv_path(self):
-        return self.get_csv_filename()
+        """获取当前活跃的 CSV 路径。返回 '_merged_' 表示合并模式。"""
+        # 如果用户手动选择了特定 CSV，返回该文件
+        selected = st.session_state.get('selected_csv')
+        if selected and os.path.isfile(selected):
+            return selected
+        # 默认使用合并模式（读取所有历史CSV）
+        return "_merged_"
 
     def load_record_df(self):
-        return self._get_df(self._get_active_csv_path())
+        csv_path = self._get_active_csv_path()
+        if csv_path == "_merged_":
+            return self._get_merged_df()
+        return self._get_df(csv_path)
 
     def get_record_status_map(_self, csv_path=None):
         if csv_path is None:
             csv_path = _self._get_active_csv_path()
-        df = _self._get_df(csv_path)
+        if csv_path == "_merged_":
+            df = _self._get_merged_df()
+        else:
+            df = _self._get_df(csv_path)
         if df.empty or '图片ID' not in df.columns or '结果' not in df.columns:
             return {}
 
@@ -399,7 +420,7 @@ class DataMixin:
         """获取输出文件名前缀：{标签}_{操作员}_{日期}"""
         task_type = st.session_state.get('task_type', '新标')
         operator = st.session_state.get('operator_name', '').strip()
-        date_str = datetime.datetime.now().strftime("%Y%m%d")
+        date_str = today_str()
         return f"{task_type}_{operator}_{date_str}"
 
     def get_evidence_folder_name(self):
@@ -423,6 +444,71 @@ class DataMixin:
             return [os.path.join(csv_dir, f) for f in files]
         except OSError:
             return []
+
+    def _get_all_csv_paths(self):
+        """获取当前操作员下所有 CSV 路径（含日期信息），返回 [(date_str, filepath), ...] 按日期倒序"""
+        all_csvs = self._scan_existing_csvs()
+        result = []
+        for path in all_csvs:
+            date_str, _ = parse_csv_date(path)
+            if date_str:
+                result.append((date_str, path))
+            else:
+                result.append(("unknown", path))
+        return result
+
+    def _get_merged_df(self):
+        """合并所有历史 CSV，以图片ID为唯一主键去重（保留最后一条），带损坏文件跳过"""
+        cache_key = "_df_cache_merged_all"
+        if cache_key in st.session_state:
+            return st.session_state[cache_key].copy()
+
+        csv_list = self._get_all_csv_paths()
+        if not csv_list:
+            return pd.DataFrame()
+
+        all_dfs = []
+        damaged_files = []
+        for date_str, csv_path in csv_list:
+            try:
+                df = pd.read_csv(csv_path, dtype=str, encoding='utf-8-sig')
+                if df.empty:
+                    continue
+                if '图片ID' in df.columns:
+                    df['图片ID'] = df['图片ID'].astype(str).str.strip()
+                    df = df.drop_duplicates(subset=['图片ID'], keep='last')
+                all_dfs.append(df)
+            except PermissionError:
+                logging.warning("跳过被占用的CSV: %s", csv_path)
+                damaged_files.append(os.path.basename(csv_path))
+            except Exception as e:
+                logging.warning("跳过损坏的CSV: %s — %s", csv_path, e)
+                damaged_files.append(os.path.basename(csv_path))
+
+        if damaged_files:
+            st.warning(f"⚠️ {len(damaged_files)} 个CSV文件损坏或被占用，已跳过：{', '.join(damaged_files)}")
+
+        if not all_dfs:
+            return pd.DataFrame()
+
+        merged = pd.concat(all_dfs, ignore_index=True)
+        if '图片ID' in merged.columns:
+            merged = merged.drop_duplicates(subset=['图片ID'], keep='last').reset_index(drop=True)
+
+        st.session_state[cache_key] = merged.copy()
+        # 构建合并后的查找字典
+        lookup_key = "_df_lookup_merged_all"
+        st.session_state[lookup_key] = self._build_lookup(merged)
+        return merged.copy()
+
+    def _invalidate_merged_cache(self):
+        """使合并CSV缓存失效（写入新数据后调用）"""
+        st.session_state.pop("_df_cache_merged_all", None)
+        st.session_state.pop("_df_lookup_merged_all", None)
+        # 同时使单文件缓存失效
+        for key in list(st.session_state.keys()):
+            if key.startswith("_df_cache_") or key.startswith("_df_lookup_"):
+                st.session_state.pop(key, None)
 
     def get_csv_filename(self):
         selected = st.session_state.get('selected_csv')
@@ -474,7 +560,7 @@ class DataMixin:
             "备注": feedback if feedback else "",
             "标签": tags_str,
             "错误截图": img_paths_str,
-            "质检时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "质检时间": now_str(),
             "路径": group['root']
         }
 
@@ -525,6 +611,7 @@ class DataMixin:
         st.session_state.pop(cache_key, None)
         lookup_key = f"_df_lookup_{csv_file}"
         st.session_state.pop(lookup_key, None)
+        self._invalidate_merged_cache()
 
         if failed_screenshots:
             return True, f"⚠️ 记录已保存，但第 {', '.join(map(str, failed_screenshots)) } 张截图保存失败"

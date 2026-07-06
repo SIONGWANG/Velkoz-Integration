@@ -89,6 +89,10 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
 
         if 'custom_tags' not in st.session_state: st.session_state.custom_tags = self._load_tags_from_disk()
         if 'selected_tags' not in st.session_state: st.session_state.selected_tags = {}
+        if 'history_stats_mode' not in st.session_state: st.session_state.history_stats_mode = 'merged'
+        if 'selected_csv' not in st.session_state: st.session_state.selected_csv = None
+        if 'bz_view_mode' not in st.session_state: st.session_state.bz_view_mode = '自动'
+        if 'bz_image_ratio' not in st.session_state: st.session_state.bz_image_ratio = settings.get('bz_image_ratio', 65)
 
     def run(self):
         version = os.path.basename(BASE_DIR)
@@ -118,11 +122,13 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if needs_scroll:
             st.session_state.needs_scroll_top = False
 
+        bz_ratio = st.session_state.get('bz_image_ratio', 65)
         components.html(f"""
         <script>
         (function() {{
             var d = window.parent.document;
             d.documentElement.style.setProperty('--b-height-percent', {b_height_percent});
+            d.documentElement.style.setProperty('--bz-image-ratio', {bz_ratio});
             {"d.querySelector('section.main').scrollTop = 0; d.documentElement.scrollTop = 0;" if needs_scroll else ""}
         }})();
         </script>

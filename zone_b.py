@@ -8,6 +8,7 @@ import json
 from utils import BASE_DIR, read_txt
 from disk_io import get_display_image_bytes
 from easter_eggs import on_batch_complete
+from css_styles import BZ_DRAG_JS
 
 
 class ZoneBMixin:
@@ -352,12 +353,13 @@ class ZoneBMixin:
 
     @st.fragment
     def render_b_image_area(self, group):
-        """B 区图片渲染"""
+        """B 区图片渲染 — 上下分层布局"""
         img_groups = st.session_state.data_groups
         all_ids_b = [g['id'] for g in img_groups]
         curr_idx_b = all_ids_b.index(st.session_state.current_id) if st.session_state.current_id in all_ids_b else 0
         total_b = len(all_ids_b)
 
+        # ── 进度条 ──
         pct = (curr_idx_b + 1) / total_b * 100 if total_b > 0 else 0
         components.html(f"""
         <div style="display:flex; align-items:center; gap:8px; height:20px; overflow:visible;">
@@ -372,11 +374,63 @@ class ZoneBMixin:
             st.warning("⚠️ 图片未按规则匹配，显示的是文件夹内第一张图片")
 
         images = group['images']
-        if st.session_state.view_mode == "四宫格":
-            r1 = st.columns(2); r2 = st.columns(2) if len(images)>2 else []
-            for i, img in enumerate(images):
-                tgt = r1[i] if i<2 else r2[i-2]
-                with tgt:
+        num_images = len(images)
+
+        # ── 视图模式选择器 ──
+        view_options = ["自动", "双图", "四宫格"]
+        current_view = st.session_state.get('bz_view_mode', '自动')
+        vc1, vc2, vc3 = st.columns(3)
+        with vc1:
+            if st.button("🔍 自动", key=f"bv_auto_{group['id']}",
+                         type="primary" if current_view == '自动' else "secondary",
+                         use_container_width=True,
+                         on_click=lambda: st.session_state.update({'bz_view_mode': '自动'})):
+                pass
+        with vc2:
+            if st.button("⬜ 双图", key=f"bv_2_{group['id']}",
+                         type="primary" if current_view == '双图' else "secondary",
+                         use_container_width=True,
+                         on_click=lambda: st.session_state.update({'bz_view_mode': '双图'})):
+                pass
+        with vc3:
+            if st.button("🔲 四宫格", key=f"bv_4_{group['id']}",
+                         type="primary" if current_view == '四宫格' else "secondary",
+                         use_container_width=True,
+                         on_click=lambda: st.session_state.update({'bz_view_mode': '四宫格'})):
+                pass
+
+        # ── 确定实际视图 ──
+        view_mode = st.session_state.get('bz_view_mode', '自动')
+        if view_mode == '自动':
+            actual_cols = 2 if num_images <= 2 else 4
+        elif view_mode == '双图':
+            actual_cols = 2
+        else:
+            actual_cols = 4
+
+        # ── 上层：图片预览区 ──
+        if actual_cols == 2:
+            # 双图模式：横向两栏
+            cols = st.columns(2)
+            for i, img in enumerate(images[:2]):
+                with cols[i]:
+                    p = os.path.join(group['root'], img)
+                    img_bytes, res = get_display_image_bytes(p)
+                    st.image(img_bytes, use_container_width=True)
+                    st.caption(res)
+            # 隐藏多余图片（如果有）
+        else:
+            # 四宫格模式：2×2 网格
+            row1 = st.columns(2)
+            row2 = st.columns(2) if num_images > 2 else []
+            for i, img in enumerate(images[:4]):
+                if i < 2:
+                    col = row1[i]
+                else:
+                    col = row2[i - 2] if row2 else None
+                if col is None:
+                    break
+                with col:
                     p = os.path.join(group['root'], img)
                     img_bytes, res = get_display_image_bytes(p)
                     st.image(img_bytes, use_container_width=True)
@@ -386,38 +440,44 @@ class ZoneBMixin:
                     with cc2:
                         st.button("📂", key=f"open_bimg_{group['id']}_{i}", help=f"双击图片或用此按钮在系统查看器中打开 {img}", use_container_width=True,
                                   on_click=self.open_in_system, args=(p,))
-            # 双击图片 → 触发对应 📂 按钮
-            components.html("""
-            <script>
-            (function() {
-                const doc = window.parent.document;
-                const allBtns = Array.from(doc.querySelectorAll('button'));
-                const openBtns = allBtns.filter(b => b.innerText.trim() === '📂');
-                openBtns.forEach(btn => {
-                    btn.style.fontSize = '0.7rem';
-                    btn.style.padding = '0 2px';
-                    btn.style.minHeight = '20px';
-                    btn.style.opacity = '0.5';
-                    const block = btn.closest('[data-testid="stVerticalBlock"]');
-                    if (!block) return;
-                    const img = block.querySelector('img');
-                    if (!img || img.dataset.dblclicked) return;
-                    img.dataset.dblclicked = '1';
-                    img.style.cursor = 'pointer';
-                    img.title = '双击在系统查看器中打开';
-                    img.addEventListener('dblclick', function(e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        btn.click();
-                    });
-                });
-            })();
-            </script>
-            """, height=0)
-        else:
-            self.render_single_image_view(group, images)
 
-        st.markdown("---")
+        # 双击图片 → 触发对应 📂 按钮
+        components.html("""
+        <script>
+        (function() {
+            const doc = window.parent.document;
+            const allBtns = Array.from(doc.querySelectorAll('button'));
+            const openBtns = allBtns.filter(b => b.innerText.trim() === '📂');
+            openBtns.forEach(btn => {
+                btn.style.fontSize = '0.7rem';
+                btn.style.padding = '0 2px';
+                btn.style.minHeight = '20px';
+                btn.style.opacity = '0.5';
+                const block = btn.closest('[data-testid="stVerticalBlock"]');
+                if (!block) return;
+                const img = block.querySelector('img');
+                if (!img || img.dataset.dblclicked) return;
+                img.dataset.dblclicked = '1';
+                img.style.cursor = 'pointer';
+                img.title = '双击在系统查看器中打开';
+                img.addEventListener('dblclick', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    btn.click();
+                });
+            });
+        })();
+        </script>
+        """, height=0)
+
+        # ── 拖拽分割线 ──
+        components.html("""
+        <div class="bz-divider" style="width:100%;"></div>
+        """ + BZ_DRAG_JS, height=20)
+
+        # ── 下层：文本 + AI质检区（固定最小高度） ──
+        st.markdown('<div class="bz-bottom-area">', unsafe_allow_html=True)
+
         t1, t2 = st.columns(2)
         with t1:
             c_zh = read_txt(os.path.join(group['root'], group['txt_zh']) if group['txt_zh'] else None)
@@ -452,3 +512,5 @@ class ZoneBMixin:
                 st.caption("ℹ️ 当前未加载质检表，或内容为空。")
             else:
                 st.warning("⚠️ 已加载数据源，但未找到列名：`所在文件夹(ID)`。请检查表头是否匹配。")
+
+        st.markdown('</div>', unsafe_allow_html=True)

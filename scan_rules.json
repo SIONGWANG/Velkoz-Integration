@@ -3,7 +3,17 @@
   "image_slots": [
     {
       "stem_suffixes": [
-        ""
+        "_1"
+      ]
+    },
+    {
+      "stem_suffixes": [
+        "_2"
+      ]
+    },
+    {
+      "stem_suffixes": [
+        "_3"
       ]
     },
     {

@@ -4,8 +4,35 @@ import sys
 import re
 import json
 import logging
+from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 from PIL import Image, ImageFile
+
+# === 🕐 时区工具（锁定 Asia/Shanghai） ===
+_TZ_SHANGHAI = timezone(timedelta(hours=8))
+
+def now_shanghai():
+    """返回当前 Asia/Shanghai 时区的 aware datetime"""
+    return datetime.now(_TZ_SHANGHAI)
+
+def today_str():
+    """返回当前日期字符串 YYYYMMDD（Asia/Shanghai 时区）"""
+    return now_shanghai().strftime("%Y%m%d")
+
+def now_str():
+    """返回当前完整时间戳字符串 YYYY-MM-DD HH:MM:SS（Asia/Shanghai 时区）"""
+    return now_shanghai().strftime("%Y-%m-%d %H:%M:%S")
+
+def parse_csv_date(filename):
+    """从 CSV 文件名中提取日期字符串 YYYYMMDD。
+    支持格式：{标签}_{操作员}_{日期}_验收记录.csv
+    返回 (date_str, operator) 或 (None, None)"""
+    basename = os.path.basename(filename)
+    # 匹配 _YYYYMMDD_ 模式
+    m = re.search(r'_(\d{8})_', basename)
+    if m:
+        return m.group(1), basename
+    return None, basename
 
 # 允许加载不完整的图片文件（损坏/截断），避免整个质检流程因单张坏图崩溃
 ImageFile.LOAD_TRUNCATED_IMAGES = True

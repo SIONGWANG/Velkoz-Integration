@@ -114,6 +114,53 @@ div[data-testid="column"]:nth-of-type(2) div[data-testid="stCaptionContainer"] {
 div[data-testid="column"]:nth-of-type(2) div[data-testid="stNotification"] { padding: 0.2rem 0.5rem !important; }
 div[data-testid="column"]:nth-of-type(2) textarea { margin-bottom: -4px !important; }
 div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { margin: 0 !important; }
+/* ═══ B区分层布局 ═══ */
+.bz-split-container { display: flex; flex-direction: column; height: 100%; position: relative; }
+.bz-image-area {
+    flex: 0 0 auto;
+    overflow: hidden;
+    min-height: 120px;
+    position: relative;
+}
+.bz-image-area img {
+    border-radius: 6px; object-fit: contain !important;
+    max-height: calc(100vh * var(--bz-image-ratio, 65) / 100 - 80px) !important;
+    width: auto !important; margin: 0 auto !important;
+    display: block !important;
+}
+.bz-divider {
+    height: 6px; background: #e0e0e0; cursor: ns-resize; position: relative;
+    border-radius: 3px; margin: 2px 0; flex-shrink: 0; z-index: 10;
+}
+.bz-divider:hover, .bz-divider:active { background: #6366f1; }
+.bz-divider::after {
+    content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 20px; height: 2px; background: #999; border-radius: 1px;
+}
+.bz-divider:hover::after { background: #fff; }
+.bz-bottom-area {
+    flex: 1 1 auto; min-height: 180px; overflow-y: auto;
+    padding-top: 6px; border-top: 1px solid #f0f0f0;
+}
+.bz-bottom-area textarea { min-height: 50px !important; }
+/* 四宫格图片网格 */
+.bz-grid-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.bz-grid-4 .bz-img-cell { position: relative; overflow: hidden; border-radius: 4px; }
+.bz-grid-4 .bz-img-cell img {
+    width: 100%; height: 100%; object-fit: contain !important; display: block;
+}
+/* 双图横向布局 */
+.bz-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.bz-grid-2 .bz-img-cell { position: relative; overflow: hidden; border-radius: 4px; }
+.bz-grid-2 .bz-img-cell img {
+    width: 100%; height: 100%; object-fit: contain !important; display: block;
+}
+/* 空槽位隐藏 */
+.bz-img-cell.bz-empty { display: none; }
+/* 图片信息栏 */
+.bz-img-info { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.75rem; color: #666; }
+/* 视图模式选择器 */
+.bz-view-selector { margin-bottom: 4px; }
 </style>
 """
 
@@ -134,6 +181,49 @@ STATUS_BUTTON_JS = """
     }
     tagStatusButtons();
     new MutationObserver(tagStatusButtons).observe(doc.body, {childList: true, subtree: true});
+})();
+</script>
+"""
+
+BZ_DRAG_JS = """
+<script>
+(function() {
+    var doc = window.parent.document;
+    function initDraggers() {
+        doc.querySelectorAll('.bz-divider').forEach(function(divider) {
+            if (divider.dataset.dragInit) return;
+            divider.dataset.dragInit = '1';
+            var container = divider.parentElement;
+            var imageArea = divider.previousElementSibling;
+            var bottomArea = divider.nextElementSibling;
+            if (!imageArea || !bottomArea) return;
+            var startY, startH;
+            divider.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                startY = e.clientY;
+                startH = imageArea.offsetHeight;
+                function onMove(ev) {
+                    var delta = ev.clientY - startY;
+                    var newH = Math.max(120, Math.min(startH + delta, container.offsetHeight - 200));
+                    imageArea.style.flex = '0 0 ' + newH + 'px';
+                    var ratio = Math.round(newH / container.offsetHeight * 100);
+                    doc.documentElement.style.setProperty('--bz-image-ratio', ratio);
+                }
+                function onUp() {
+                    doc.removeEventListener('mousemove', onMove);
+                    doc.removeEventListener('mouseup', onUp);
+                    doc.body.style.cursor = '';
+                    doc.body.style.userSelect = '';
+                }
+                doc.body.style.cursor = 'ns-resize';
+                doc.body.style.userSelect = 'none';
+                doc.addEventListener('mousemove', onMove);
+                doc.addEventListener('mouseup', onUp);
+            });
+        });
+    }
+    initDraggers();
+    new MutationObserver(initDraggers).observe(doc.body, {childList: true, subtree: true});
 })();
 </script>
 """

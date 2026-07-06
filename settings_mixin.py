@@ -62,7 +62,8 @@ class SettingsMixin:
                 logging.warning("设置文件加载失败: %s - %s", settings_file, str(e))
                 st.session_state['_settings_load_error'] = str(e)
         return {"layout_width": 80, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
-                "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标"}
+                "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标",
+                "bz_image_ratio": 65}
 
     def _save_settings(self):
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")
@@ -72,11 +73,12 @@ class SettingsMixin:
                 "layout_width": st.session_state.get('layout_width', 80),
                 "layout_height": st.session_state.get('layout_height', 85),
                 "view_mode": st.session_state.get('view_mode', "四宫格"),
-                "root_path": st.session_state.get('root_path', ""),
+                "root_path": st.session_state.get('root_path', ''),
                 "annotator_confirm_enabled": st.session_state.get('annotator_confirm_enabled', False),
-                "operator_name": st.session_state.get('operator_name', ""),
+                "operator_name": st.session_state.get('operator_name', ''),
                 "task_type": st.session_state.get('task_type', "新标"),
                 "enable_hotkeys": st.session_state.get('enable_hotkeys', True),
+                "bz_image_ratio": st.session_state.get('bz_image_ratio', 65),
             }
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -629,6 +631,19 @@ class SettingsMixin:
 
         st.divider()
         self._render_view_mode_toggle()
+
+        # 图片容器高度比例滑块
+        st.divider()
+        st.caption("📐 图片区高度比例")
+        bz_ratio = st.slider(
+            "图片区占比", min_value=40, max_value=80,
+            value=st.session_state.get('bz_image_ratio', 65),
+            key=f"{key_prefix}bz_ratio_slider",
+            help="调节图片预览区占B区的高度比例（%），剩余空间为文本+AI质检区"
+        )
+        if bz_ratio != st.session_state.get('bz_image_ratio', 65):
+            st.session_state.bz_image_ratio = bz_ratio
+            self._save_settings()
 
         st.divider()
         self._render_scan_rules_panel()

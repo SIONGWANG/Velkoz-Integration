@@ -1,8 +1,10 @@
 # zone_a.py — A区渲染方法，提取自 app.py
 import streamlit as st
 import streamlit.components.v1 as components
+import os
 
 from disk_io import preload_next_images
+from utils import BASE_DIR, parse_csv_date
 
 
 class ZoneAMixin:
@@ -14,6 +16,58 @@ class ZoneAMixin:
         groups = st.session_state.data_groups
         if groups:
             all_ids = list(dict.fromkeys(g['id'] for g in groups))
+
+            # ── 历史批次选择器 ──
+            csv_list = self._get_all_csv_paths()
+            if csv_list:
+                # 构建选择选项
+                csv_options = ["📅 全量历史数据（合并）"]
+                csv_paths = ["_merged_"]
+                for date_str, path in csv_list:
+                    basename = os.path.basename(path)
+                    csv_options.append(f"📋 {basename}")
+                    csv_paths.append(path)
+
+                current_sel = st.session_state.get('selected_csv')
+                if current_sel and current_sel in csv_paths:
+                    init_idx = csv_paths.index(current_sel)
+                else:
+                    init_idx = 0  # 默认全量合并
+
+                chosen = st.selectbox(
+                    "📂 质检数据源",
+                    csv_options,
+                    index=init_idx,
+                    key="a_zone_csv_selector",
+                    label_visibility="collapsed"
+                )
+                chosen_idx = csv_options.index(chosen)
+                new_sel = csv_paths[chosen_idx]
+                if new_sel != st.session_state.get('selected_csv'):
+                    st.session_state.selected_csv = new_sel
+                    # 切换数据源后清除缓存，触发重新读取
+                    self._invalidate_merged_cache()
+                    st.session_state.last_loaded_id = None
+                    st.rerun()
+
+                # 统计模式标签
+                stats_mode = st.session_state.get('history_stats_mode', 'merged')
+                if csv_list:
+                    mode_c1, mode_c2 = st.columns(2)
+                    with mode_c1:
+                        if st.button("📊 全量统计", key="stats_merged",
+                                     type="primary" if stats_mode == 'merged' else "secondary",
+                                     use_container_width=True,
+                                     on_click=lambda: st.session_state.update({'history_stats_mode': 'merged', 'selected_csv': '_merged_'})):
+                            pass
+                    with mode_c2:
+                        if st.button("📋 当日批次", key="stats_today",
+                                     type="primary" if stats_mode == 'single' else "secondary",
+                                     use_container_width=True,
+                                     on_click=lambda: st.session_state.update({'history_stats_mode': 'single', 'selected_csv': None})):
+                            pass
+                    stats_mode = st.session_state.get('history_stats_mode', 'merged')
+
             status_map = self.get_record_status_map(self._get_active_csv_path())
             # 只统计当前数据组内的记录状态
             current_status_map = {k: v for k, v in status_map.items() if k in set(all_ids)}
@@ -25,6 +79,14 @@ class ZoneAMixin:
             unqualified_count = sum(1 for v in current_status_map.values() if v == '不合格')
             unchecked_count = total_count - len(processed_ids)
             pending_count = sum(1 for v in current_status_map.values() if v == '待定')
+
+            # 显示数据源信息
+            stats_mode = st.session_state.get('history_stats_mode', 'merged')
+            if stats_mode == 'merged' and len(csv_list) > 1:
+                st.caption(f"📊 全量统计: 合并 {len(csv_list)} 个CSV文件")
+            elif stats_mode == 'single' and st.session_state.get('selected_csv'):
+                sel_name = os.path.basename(st.session_state['selected_csv'])
+                st.caption(f"📋 单日批次: {sel_name}")
 
             r1c1, r1c2 = st.columns(2)
             with r1c1: st.metric("🟢 合格", qualified_count)
