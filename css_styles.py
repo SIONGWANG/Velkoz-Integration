@@ -143,24 +143,39 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
     padding-top: 6px; border-top: 1px solid #f0f0f0;
 }
 .bz-bottom-area textarea { min-height: 50px !important; }
-/* 四宫格图片网格 */
-.bz-grid-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.bz-grid-4 .bz-img-cell { position: relative; overflow: hidden; border-radius: 4px; }
-.bz-grid-4 .bz-img-cell img {
-    width: 100%; height: 100%; object-fit: contain !important; display: block;
+/* ═══ 1×N 单行横向图片布局 ═══ */
+.bz-linear-row {
+    display: flex; flex-direction: row; gap: 6px; width: 100%;
+    align-items: flex-start; justify-content: center;
 }
-/* 双图横向布局 */
-.bz-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.bz-grid-2 .bz-img-cell { position: relative; overflow: hidden; border-radius: 4px; }
-.bz-grid-2 .bz-img-cell img {
-    width: 100%; height: 100%; object-fit: contain !important; display: block;
+.bz-linear-row .bz-img-cell {
+    flex: 1 1 0; min-width: 0; position: relative; overflow: hidden; border-radius: 4px;
+    display: flex; flex-direction: column; align-items: center;
 }
-/* 空槽位隐藏 */
-.bz-img-cell.bz-empty { display: none; }
-/* 图片信息栏 */
+.bz-linear-row .bz-img-cell img {
+    width: 100%; height: auto; max-height: calc(100vh * var(--bz-image-ratio, 65) / 100 - 100px);
+    object-fit: contain !important; display: block; border-radius: 4px;
+}
+.bz-img-cell.bz-empty { display: none !important; }
 .bz-img-info { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.75rem; color: #666; }
-/* 视图模式选择器 */
 .bz-view-selector { margin-bottom: 4px; }
+/* ═══ 顶部通栏布局 ═══ */
+.bz-topbar {
+    background: #f8f9fa; border-bottom: 1px solid #e0e0e0;
+    padding: 6px 12px; margin-bottom: 6px; border-radius: 6px;
+}
+.bz-topbar-collapsed { display: none !important; }
+.bz-topbar-toggle {
+    position: absolute; top: 4px; right: 8px; z-index: 20;
+    background: #fff; border: 1px solid #ddd; border-radius: 4px;
+    padding: 2px 8px; cursor: pointer; font-size: 0.75rem; color: #666;
+}
+.bz-topbar-toggle:hover { border-color: #6366f1; color: #6366f1; }
+/* ═══ 左侧精简文件列表 ═══ */
+.bz-sidebar-mini { overflow-y: auto; max-height: calc(100vh - 120px); }
+.bz-sidebar-mini .stRadio { font-size: 0.8rem !important; }
+/* ═══ 布局模式切换 ═══ */
+.bz-layout-switch { margin-bottom: 4px; }
 </style>
 """
 
@@ -224,6 +239,30 @@ BZ_DRAG_JS = """
     }
     initDraggers();
     new MutationObserver(initDraggers).observe(doc.body, {childList: true, subtree: true});
+})();
+</script>
+"""
+
+BZ_TOPBAR_TOGGLE_JS = """
+<script>
+(function() {
+    var doc = window.parent.document;
+    function initTopbarToggles() {
+        doc.querySelectorAll('[data-bz-toggle]').forEach(function(btn) {
+            if (btn.dataset.toggleInit) return;
+            btn.dataset.toggleInit = '1';
+            btn.addEventListener('click', function() {
+                var targetId = btn.dataset.bzToggle;
+                var target = doc.getElementById(targetId);
+                if (!target) return;
+                var isHidden = target.style.display === 'none';
+                target.style.display = isHidden ? '' : 'none';
+                btn.textContent = isHidden ? '▼ 收起' : '▶ 展开';
+            });
+        });
+    }
+    initTopbarToggles();
+    new MutationObserver(initTopbarToggles).observe(doc.body, {childList: true, subtree: true});
 })();
 </script>
 """

@@ -353,7 +353,7 @@ class ZoneBMixin:
 
     @st.fragment
     def render_b_image_area(self, group):
-        """B 区图片渲染 — 上下分层布局"""
+        """B 区图片渲染 — 1×N单行横向平铺 + 上下分层布局"""
         img_groups = st.session_state.data_groups
         all_ids_b = [g['id'] for g in img_groups]
         curr_idx_b = all_ids_b.index(st.session_state.current_id) if st.session_state.current_id in all_ids_b else 0
@@ -376,8 +376,7 @@ class ZoneBMixin:
         images = group['images']
         num_images = len(images)
 
-        # ── 视图模式选择器 ──
-        view_options = ["自动", "双图", "四宫格"]
+        # ── 视图模式选择器：仅双图/四图 ──
         current_view = st.session_state.get('bz_view_mode', '自动')
         vc1, vc2, vc3 = st.columns(3)
         with vc1:
@@ -393,53 +392,52 @@ class ZoneBMixin:
                          on_click=lambda: st.session_state.update({'bz_view_mode': '双图'})):
                 pass
         with vc3:
-            if st.button("🔲 四宫格", key=f"bv_4_{group['id']}",
-                         type="primary" if current_view == '四宫格' else "secondary",
+            if st.button("📐 四图", key=f"bv_4_{group['id']}",
+                         type="primary" if current_view == '四图' else "secondary",
                          use_container_width=True,
-                         on_click=lambda: st.session_state.update({'bz_view_mode': '四宫格'})):
+                         on_click=lambda: st.session_state.update({'bz_view_mode': '四图'})):
                 pass
 
-        # ── 确定实际视图 ──
+        # ── 确定实际列数 ──
         view_mode = st.session_state.get('bz_view_mode', '自动')
         if view_mode == '自动':
             actual_cols = 2 if num_images <= 2 else 4
         elif view_mode == '双图':
             actual_cols = 2
-        else:
+        else:  # 四图
             actual_cols = 4
 
-        # ── 上层：图片预览区 ──
-        if actual_cols == 2:
-            # 双图模式：横向两栏
-            cols = st.columns(2)
-            for i, img in enumerate(images[:2]):
-                with cols[i]:
+        # ── 上层：1×N 单行横向图片预览 ──
+        display_images = images[:actual_cols]
+        html_parts = ['<div class="bz-linear-row">']
+        for i, img in enumerate(display_images):
+            p = os.path.join(group['root'], img)
+            img_bytes, res = get_display_image_bytes(p)
+            # 将图片转为 base64 嵌入
+            import base64
+            b64 = base64.b64encode(img_bytes).decode() if isinstance(img_bytes, bytes) else ''
+            suffix = os.path.splitext(img)[0].replace(group['id'], '').strip('_')
+            label = f"图{i+1}" if not suffix else suffix
+            html_parts.append(f'''
+            <div class="bz-img-cell">
+                <img src="data:image/jpeg;base64,{b64}" alt="{img}" title="双击打开: {img}" />
+                <div class="bz-img-info">
+                    <span>{label} | {res}</span>
+                    <span style="opacity:0.5; font-size:0.7rem;">📂 双击打开</span>
+                </div>
+            </div>''')
+        html_parts.append('</div>')
+        components.html(''.join(html_parts), height=420)
+
+        # Streamlit 图片按钮（用于双击触发打开）
+        img_cols = st.columns(min(actual_cols, len(display_images)))
+        for i, img in enumerate(display_images[:actual_cols]):
+            if i < len(img_cols):
+                with img_cols[i]:
                     p = os.path.join(group['root'], img)
-                    img_bytes, res = get_display_image_bytes(p)
-                    st.image(img_bytes, use_container_width=True)
-                    st.caption(res)
-            # 隐藏多余图片（如果有）
-        else:
-            # 四宫格模式：2×2 网格
-            row1 = st.columns(2)
-            row2 = st.columns(2) if num_images > 2 else []
-            for i, img in enumerate(images[:4]):
-                if i < 2:
-                    col = row1[i]
-                else:
-                    col = row2[i - 2] if row2 else None
-                if col is None:
-                    break
-                with col:
-                    p = os.path.join(group['root'], img)
-                    img_bytes, res = get_display_image_bytes(p)
-                    st.image(img_bytes, use_container_width=True)
-                    cc1, cc2 = st.columns([4, 1])
-                    with cc1:
-                        st.caption(res)
-                    with cc2:
-                        st.button("📂", key=f"open_bimg_{group['id']}_{i}", help=f"双击图片或用此按钮在系统查看器中打开 {img}", use_container_width=True,
-                                  on_click=self.open_in_system, args=(p,))
+                    st.button("📂", key=f"open_bimg_{group['id']}_{i}",
+                              help=f"在系统查看器中打开 {img}", use_container_width=True,
+                              on_click=self.open_in_system, args=(p,))
 
         # 双击图片 → 触发对应 📂 按钮
         components.html("""

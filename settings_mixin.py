@@ -63,7 +63,7 @@ class SettingsMixin:
                 st.session_state['_settings_load_error'] = str(e)
         return {"layout_width": 80, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
                 "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标",
-                "bz_image_ratio": 65}
+                "bz_image_ratio": 65, "layout_mode": "topbar"}
 
     def _save_settings(self):
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")
@@ -79,6 +79,7 @@ class SettingsMixin:
                 "task_type": st.session_state.get('task_type', "新标"),
                 "enable_hotkeys": st.session_state.get('enable_hotkeys', True),
                 "bz_image_ratio": st.session_state.get('bz_image_ratio', 65),
+                "layout_mode": st.session_state.get('layout_mode', 'topbar'),
             }
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -623,6 +624,24 @@ class SettingsMixin:
             st.divider()
 
         self._render_layout_sliders(key_prefix=key_prefix)
+
+        # 布局模式切换
+        st.divider()
+        st.caption("📐 页面布局")
+        layout_options = ["topbar", "old3col", "bottom"]
+        layout_labels = ["顶部通栏（推荐）", "旧版三栏", "底部通栏"]
+        current_layout = st.session_state.get('layout_mode', 'topbar')
+        current_idx = layout_options.index(current_layout) if current_layout in layout_options else 0
+        layout_choice = st.radio(
+            "布局模式", layout_options, index=current_idx,
+            format_func=lambda x: layout_labels[layout_options.index(x)],
+            key=f"{key_prefix}layout_mode_radio",
+            horizontal=True, label_visibility="collapsed"
+        )
+        if layout_choice != current_layout:
+            st.session_state.layout_mode = layout_choice
+            self._save_settings()
+            st.rerun()
 
         if show_datasource:
             st.divider()
