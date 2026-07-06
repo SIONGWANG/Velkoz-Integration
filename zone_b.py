@@ -412,9 +412,7 @@ class ZoneBMixin:
 
         # ── 上层：1×N 单行横向图片预览 ──
         display_images = images[:actual_cols]
-        # 固定容器高度：所有图片在同一行，高度由容器决定
-        container_h = max(300, int(500 * bz_ratio / 65))
-        html_parts = [f'<div class="bz-linear-row" style="height:{container_h}px;">']
+        html_parts = ['<div class="bz-linear-row">']
         for i, img in enumerate(display_images):
             p = os.path.join(group['root'], img)
             img_bytes, res = get_display_image_bytes(p)
@@ -422,14 +420,15 @@ class ZoneBMixin:
             suffix = os.path.splitext(img)[0].replace(group['id'], '').strip('_')
             label = f"图{i+1}" if not suffix else suffix
             html_parts.append(f'''
-            <div class="bz-img-cell" style="height:{container_h}px;">
+            <div class="bz-img-cell">
                 <img src="data:image/jpeg;base64,{b64}" alt="{img}" title="双击打开: {img}" />
                 <div class="bz-img-info">
                     <span>{label} | {res}</span>
                 </div>
             </div>''')
         html_parts.append('</div>')
-        components.html(''.join(html_parts), height=container_h + 30)
+        # 容器高度：max-height:55vh由CSS控制，HTML给足够空间
+        components.html(''.join(html_parts), height=500)
 
         # Streamlit 图片按钮（用于双击触发打开）
         img_cols = st.columns(min(actual_cols, len(display_images)))

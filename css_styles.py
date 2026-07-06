@@ -148,24 +148,24 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 /* ═══ 1×N 单行横向图片布局 ═══ */
 .bz-linear-row {
     display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important;
-    gap: 4px; width: 100%; align-items: stretch !important; justify-content: center;
-    overflow: hidden;
+    gap: 4px; width: 100%; align-items: flex-start !important; justify-content: center;
+    overflow: visible;
 }
 .bz-linear-row .bz-img-cell {
     flex: 1 1 0 !important; min-width: 0; max-width: none;
     position: relative; border-radius: 4px;
-    display: flex; flex-direction: column; align-items: center;
-    overflow: hidden !important;
+    display: inline-flex !important; flex-direction: column; align-items: center;
 }
 .bz-linear-row .bz-img-cell img {
-    width: 100% !important; height: 100% !important;
+    width: 100% !important; height: auto !important;
+    max-height: 55vh !important;
     object-fit: contain !important; display: block; border-radius: 4px;
 }
 .bz-img-cell.bz-empty { display: none !important; }
 .bz-img-info { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.75rem; color: #666; flex-shrink: 0; }
 .bz-view-selector { margin-bottom: 4px; }
-/* 图片缩放控制 */
-.bz-zoom-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.8rem; color: #666; }
+/* 强制Streamlit列容器不干扰flex布局 */
+div[data-testid="stHorizontalBlock"] > div { flex-shrink: 1 !important; min-width: 0 !important; }
 /* ═══ 顶部通栏布局 ═══ */
 .bz-topbar {
     background: #f8f9fa; border-bottom: 1px solid #e0e0e0;
