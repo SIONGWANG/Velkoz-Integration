@@ -96,7 +96,8 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if 'layout_mode' not in st.session_state: st.session_state.layout_mode = settings.get('layout_mode', 'topbar')
         if 'topbar_collapsed' not in st.session_state: st.session_state.topbar_collapsed = False
         if 'sidebar_visible' not in st.session_state: st.session_state.sidebar_visible = False
-        if 'ribbon_tab' not in st.session_state: st.session_state.ribbon_tab = '🏠 首页'
+        if 'ribbon_tab' not in st.session_state: st.session_state.ribbon_tab = '首页'
+        if 'dark_mode' not in st.session_state: st.session_state.dark_mode = settings.get('dark_mode', False)
 
     def _render_a_zone_panels(self):
         """渲染A区的Ribbon标签内容（由render_topbar处理标签切换）"""
@@ -130,12 +131,15 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             st.session_state.needs_scroll_top = False
 
         bz_ratio = st.session_state.get('bz_image_ratio', 65)
+        dark_mode = st.session_state.get('dark_mode', False)
+        theme_attr = '"dark"' if dark_mode else '"light"'
         components.html(f"""
         <script>
         (function() {{
             var d = window.parent.document;
             d.documentElement.style.setProperty('--b-height-percent', {b_height_percent});
             d.documentElement.style.setProperty('--bz-image-ratio', {bz_ratio});
+            d.documentElement.setAttribute('data-theme', {theme_attr});
             {"d.querySelector('section.main').scrollTop = 0; d.documentElement.scrollTop = 0;" if needs_scroll else ""}
         }})();
         </script>

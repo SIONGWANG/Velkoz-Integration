@@ -63,7 +63,7 @@ class SettingsMixin:
                 st.session_state['_settings_load_error'] = str(e)
         return {"layout_width": 70, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
                 "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标",
-                "bz_image_ratio": 65, "layout_mode": "topbar"}
+                "bz_image_ratio": 65, "layout_mode": "topbar", "dark_mode": False}
 
     def _save_settings(self):
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")
@@ -80,6 +80,7 @@ class SettingsMixin:
                 "enable_hotkeys": st.session_state.get('enable_hotkeys', True),
                 "bz_image_ratio": st.session_state.get('bz_image_ratio', 65),
                 "layout_mode": st.session_state.get('layout_mode', 'topbar'),
+                "dark_mode": st.session_state.get('dark_mode', False),
             }
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -611,6 +612,15 @@ class SettingsMixin:
             st.warning(f"⚠️ 标签库加载失败，已使用空标签库。错误: {st.session_state['_tags_load_error']}")
 
         self.render_fullscreen_button()
+
+        # ── 护眼模式开关 ──
+        dark_mode = st.session_state.get('dark_mode', False)
+        if st.toggle("🌙 护眼模式", value=dark_mode, key=f"{key_prefix}dark_mode_toggle",
+                     help="切换深色/浅色主题，减少长时间使用的视觉疲劳"):
+            st.session_state.dark_mode = not dark_mode
+            self._save_settings()
+            st.rerun()
+
         st.write("")
 
         if show_operator:

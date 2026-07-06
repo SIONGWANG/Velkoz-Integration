@@ -145,6 +145,59 @@ div[data-testid="column"]:nth-of-type(2) div[data-testid="stCaptionContainer"] {
 div[data-testid="column"]:nth-of-type(2) div[data-testid="stNotification"] { padding: 0.2rem 0.5rem !important; }
 div[data-testid="column"]:nth-of-type(2) textarea { margin-bottom: -4px !important; }
 div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { margin: 0 !important; }
+/* ═══ 护眼模式（深色主题） ═══ */
+html[data-theme="dark"] body,
+html[data-theme="dark"] .stApp,
+html[data-theme="dark"] .main .block-container {
+    background-color: #1a1a2e !important; color: #e0e0e0 !important;
+}
+html[data-theme="dark"] div[data-testid="stSidebar"] { background-color: #16213e !important; }
+html[data-theme="dark"] div[data-testid="stMarkdown"] { color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stMetric"] { background-color: #1e293b !important; color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stMetric"] p { color: #94a3b8 !important; }
+html[data-theme="dark"] div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #f1f5f9 !important; }
+html[data-theme="dark"] div[data-testid="stButton"] button[kind="secondary"] {
+    background-color: #1e293b !important; color: #cbd5e1 !important; border-color: #334155 !important;
+}
+html[data-theme="dark"] div[data-testid="stButton"] button[kind="secondary"]:hover {
+    background-color: #334155 !important; border-color: #6366f1 !important; color: #fff !important;
+}
+html[data-theme="dark"] div[data-testid="stButton"] button[kind="primary"] {
+    background-color: #312e81 !important; color: #c7d2fe !important; border-color: #6366f1 !important;
+}
+html[data-theme="dark"] div[data-testid="stSelectbox"] > div > div { background-color: #1e293b !important; color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stTextInput"] > div > div > input { background-color: #1e293b !important; color: #e0e0e0 !important; border-color: #334155 !important; }
+html[data-theme="dark"] div[data-testid="stTextArea"] > div > div > textarea { background-color: #1e293b !important; color: #e0e0e0 !important; border-color: #334155 !important; }
+html[data-theme="dark"] div[data-testid="stRadio"] > label { color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stRadio"] > label > p { color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stCheckbox"] > label { color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stCheckbox"] > label > p { color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stExpander"] { background-color: #1e293b !important; border-color: #334155 !important; }
+html[data-theme="dark"] div[data-testid="stExpander"] summary { color: #e0e0e0 !important; }
+html[data-theme="dark"] div[data-testid="stSuccess"] { background-color: #064e3b !important; }
+html[data-theme="dark"] div[data-testid="stError"] { background-color: #7f1d1d !important; }
+html[data-theme="dark"] div[data-testid="stWarning"] { background-color: #78350f !important; }
+html[data-theme="dark"] div[data-testid="stInfo"] { background-color: #1e3a5f !important; }
+html[data-theme="dark"] hr { border-color: #334155 !important; }
+html[data-theme="dark"] div[data-testid="stProgress"] > div > div { background-color: #334155 !important; }
+html[data-theme="dark"] div[data-testid="stProgress"] > div > div > div { background-color: #6366f1 !important; }
+html[data-theme="dark"] .stTabs [data-baseweb="tab-list"] { background-color: #1e293b !important; }
+html[data-theme="dark"] .stTabs [data-baseweb="tab"] { color: #94a3b8 !important; }
+html[data-theme="dark"] .stTabs [aria-selected="true"] { color: #c7d2fe !important; border-bottom-color: #6366f1 !important; }
+html[data-theme="dark"] details[data-testid="stExpander"] { background-color: #1e293b !important; border-color: #334155 !important; }
+html[data-theme="dark"] details[data-testid="stExpander"] summary { color: #e0e0e0 !important; }
+/* 深色模式下图片区域背景 */
+html[data-theme="dark"] .bz-img-cell { background-color: #0f172a !important; }
+html[data-theme="dark"] .bz-img-info { color: #94a3b8 !important; }
+/* 深色模式下状态按钮颜色适配 */
+html[data-theme="dark"] button[data-status="pass"] { background-color: #064e3b !important; color: #6ee7b7 !important; border-color: #10b981 !important; }
+html[data-theme="dark"] button[data-status="fail"] { background-color: #7f1d1d !important; color: #fca5a5 !important; border-color: #ef4444 !important; }
+html[data-theme="dark"] button[data-status="modified"] { background-color: #1e3a5f !important; color: #93c5fd !important; border-color: #3b82f6 !important; }
+html[data-theme="dark"] button[data-status="pending"] { background-color: #713f12 !important; color: #fde047 !important; border-color: #eab308 !important; }
+html[data-theme="dark"] button[data-status="pass"][kind="primary"] { background-color: #047857 !important; color: #fff !important; }
+html[data-theme="dark"] button[data-status="fail"][kind="primary"] { background-color: #b91c1c !important; color: #fff !important; }
+html[data-theme="dark"] button[data-status="modified"][kind="primary"] { background-color: #1d4ed8 !important; color: #fff !important; }
+html[data-theme="dark"] button[data-status="pending"][kind="primary"] { background-color: #a16207 !important; color: #fff !important; }
 /* ═══ B区分层布局 ═══ */
 .bz-split-container { display: flex; flex-direction: column; height: 100%; position: relative; }
 .bz-image-area {
