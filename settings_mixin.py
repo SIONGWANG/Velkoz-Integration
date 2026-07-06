@@ -598,6 +598,11 @@ class SettingsMixin:
             | `` ` `` 反引号 | 在系统查看器中打开图片 |
             """)
 
+    def _on_dark_mode_toggle(self):
+        """护眼模式切换回调"""
+        st.session_state.dark_mode = st.session_state.get('_dm_toggle', False)
+        self._save_settings()
+
     def _render_settings_panel(self, key_prefix="", show_operator=False, show_datasource=False):
         """统一设置面板（活跃状态和冷启动共用）
         Args:
@@ -615,11 +620,10 @@ class SettingsMixin:
 
         # ── 护眼模式开关 ──
         dark_mode = st.session_state.get('dark_mode', False)
-        if st.toggle("🌙 护眼模式", value=dark_mode, key=f"{key_prefix}dark_mode_toggle",
-                     help="切换深色/浅色主题，减少长时间使用的视觉疲劳"):
-            st.session_state.dark_mode = not dark_mode
-            self._save_settings()
-            st.rerun()
+        st.toggle("🌙 护眼模式", value=dark_mode,
+                  key="_dm_toggle",
+                  help="切换深色/浅色主题，减少长时间使用的视觉疲劳",
+                  on_change=self._on_dark_mode_toggle)
 
         st.write("")
 
