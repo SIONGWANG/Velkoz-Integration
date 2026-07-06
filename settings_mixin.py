@@ -61,7 +61,7 @@ class SettingsMixin:
             except Exception as e:
                 logging.warning("设置文件加载失败: %s - %s", settings_file, str(e))
                 st.session_state['_settings_load_error'] = str(e)
-        return {"layout_width": 80, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
+        return {"layout_width": 70, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
                 "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标",
                 "bz_image_ratio": 65, "layout_mode": "topbar"}
 
@@ -368,7 +368,7 @@ class SettingsMixin:
         """布局调节滑块 + 应用按钮（多处复用）"""
         lc1, lc2 = st.columns(2)
         with lc1:
-            new_width = st.slider("横向占比", 50, 90, st.session_state.layout_width, key=f"{key_prefix}layout_width_slider")
+            new_width = st.slider("横向占比(B区)", 40, 85, st.session_state.layout_width, key=f"{key_prefix}layout_width_slider")
             if new_width != st.session_state.layout_width:
                 st.session_state.layout_width = new_width
                 self._save_settings()

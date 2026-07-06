@@ -410,9 +410,16 @@ class ZoneBMixin:
         else:  # 四图
             actual_cols = 4
 
-        # ── 上层：1×N 单行横向图片预览 ──
+        # ── 上层：1×N 单行横向图片预览（iframe内联样式） ──
         display_images = images[:actual_cols]
-        html_parts = ['<div class="bz-linear-row">']
+        container_h = 400
+        cell_w = f"calc((100% - {(len(display_images)-1)*4}px) / {len(display_images)})"
+        html_parts = [f'''<div style="display:flex;flex-direction:row;flex-wrap:nowrap;gap:4px;width:100%;height:{container_h}px;align-items:flex-start;">
+<style>
+.bz-img-cell {{ flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center; }}
+.bz-img-cell img {{ width:100%;max-height:{container_h-40}px;object-fit:contain;display:block;border-radius:4px; }}
+.bz-img-info {{ display:flex;justify-content:space-between;width:100%;padding:2px 4px;font-size:11px;color:#666; }}
+</style>''']
         for i, img in enumerate(display_images):
             p = os.path.join(group['root'], img)
             img_bytes, res = get_display_image_bytes(p)
@@ -421,14 +428,11 @@ class ZoneBMixin:
             label = f"图{i+1}" if not suffix else suffix
             html_parts.append(f'''
             <div class="bz-img-cell">
-                <img src="data:image/jpeg;base64,{b64}" alt="{img}" title="双击打开: {img}" />
-                <div class="bz-img-info">
-                    <span>{label} | {res}</span>
-                </div>
+                <img src="data:image/jpeg;base64,{b64}" alt="{img}" />
+                <div class="bz-img-info"><span>{label}|{res}</span></div>
             </div>''')
         html_parts.append('</div>')
-        # 容器高度：max-height:55vh由CSS控制，HTML给足够空间
-        components.html(''.join(html_parts), height=500)
+        components.html(''.join(html_parts), height=container_h + 10)
 
         # Streamlit 图片按钮（用于双击触发打开）
         img_cols = st.columns(min(actual_cols, len(display_images)))
