@@ -321,6 +321,88 @@ html[data-theme="dark"] footer { background-color: #0f172a !important; }
 html[data-theme="dark"] div[data-testid="stToolbar"] { background-color: #0f172a !important; }
 html[data-theme="dark"] div[data-testid="stStatusWidget"] { background-color: #0f172a !important; }
 html[data-theme="dark"] .stDeployButton { background-color: #0f172a !important; }
+/* ═══ 护眼模式 — 精准修复残留白底问题 ═══ */
+/* Pills按钮：强制深色背景+亮色文字 */
+html[data-theme="dark"] div[data-testid="stPills"] button,
+html[data-theme="dark"] div[data-testid="stPills"] label,
+html[data-theme="dark"] [role="option"],
+html[data-theme="dark"] [role="option"] p,
+html[data-theme="dark"] [role="option"] span,
+html[data-theme="dark"] div[data-testid="stPills"] > div > div > button,
+html[data-theme="dark"] div[data-testid="stPills"] > div > div > label {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+    border-color: #475569 !important;
+}
+html[data-theme="dark"] div[data-testid="stPills"] [aria-checked="true"],
+html[data-theme="dark"] div[data-testid="stPills"] button[aria-checked="true"],
+html[data-theme="dark"] div[data-testid="stPills"] > div > div > [aria-checked="true"] {
+    background-color: #312e81 !important; color: #c7d2fe !important;
+    border-color: #818cf8 !important;
+}
+/* 下拉框弹出列表：强制深色 */
+html[data-theme="dark"] [data-baseweb="popover"],
+html[data-theme="dark"] [data-baseweb="menu"],
+html[data-theme="dark"] [data-baseweb="menu"] ul,
+html[data-theme="dark"] [data-baseweb="list"],
+html[data-theme="dark"] [data-baseweb="list"] li,
+html[data-theme="dark"] div[role="listbox"],
+html[data-theme="dark"] div[role="listbox"] div[role="option"],
+html[data-theme="dark"] ul[role="listbox"],
+html[data-theme="dark"] div[data-baseweb="select-menu"] {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+}
+html[data-theme="dark"] [data-baseweb="menu"] li,
+html[data-theme="dark"] div[role="listbox"] div[role="option"]:hover,
+html[data-theme="dark"] [data-baseweb="option"]:hover,
+html[data-theme="dark"] [role="option"]:hover,
+html[data-theme="dark"] [role="option"]:focus {
+    background-color: #334155 !important; color: #f1f5f9 !important;
+}
+html[data-theme="dark"] [role="option"][aria-selected="true"],
+html[data-theme="dark"] [data-baseweb="option"][aria-selected="true"] {
+    background-color: #312e81 !important; color: #c7d2fe !important;
+}
+/* 下拉框选中值显示栏（常残留白底） */
+html[data-theme="dark"] div[data-baseweb="select"] > div,
+html[data-theme="dark"] div[data-baseweb="select"] > div > div,
+html[data-theme="dark"] div[data-baseweb="select"] input,
+html[data-theme="dark"] div[data-testid="stSelectbox"] [data-baseweb="select"],
+html[data-theme="dark"] div[data-testid="stMultiSelect"] [data-baseweb="select"] {
+    background-color: #1e293b !important; color: #e2e8f0 !important;
+}
+/* 文本框：护眼暖灰色文字（非纯白，减少刺眼） */
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] div[data-testid="stTextArea"] textarea,
+html[data-theme="dark"] div[data-testid="stTextArea"] > div > div > textarea {
+    background-color: #1a2332 !important; color: #d1d5db !important;
+    border-color: #475569 !important;
+}
+html[data-theme="dark"] textarea::placeholder { color: #6b7280 !important; }
+/* 输入框文字也用暖灰 */
+html[data-theme="dark"] input[type="text"],
+html[data-theme="dark"] input[type="number"],
+html[data-theme="dark"] div[data-testid="stTextInput"] input,
+html[data-theme="dark"] div[data-testid="stNumberInput"] input {
+    background-color: #1a2332 !important; color: #d1d5db !important;
+    border-color: #475569 !important;
+}
+/* Streamlit标签文字（经常漏掉的白底灰字） */
+html[data-theme="dark"] label,
+html[data-theme="dark"] div[data-testid="stWidgetLabel"],
+html[data-theme="dark"] .stLabel,
+html[data-theme="dark"] span[data-baseweb="typography"] {
+    color: #e2e8f0 !important;
+}
+/* 投票/表单内的白色残留 */
+html[data-theme="dark"] form,
+html[data-theme="dark"] div[data-testid="stForm"] > div {
+    background-color: transparent !important;
+}
+/* 所有div级容器的白色background兜底 */
+html[data-theme="dark"] div[data-testid="stVerticalBlock"] > div,
+html[data-theme="dark"] div[data-testid="stHorizontalBlock"] > div {
+    background-color: transparent !important;
+}
 /* ═══ B区分层布局 ═══ */
 .bz-split-container { display: flex; flex-direction: column; height: 100%; position: relative; }
 .bz-image-area {
