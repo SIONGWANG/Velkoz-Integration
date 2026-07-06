@@ -147,19 +147,19 @@ div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { mar
 .bz-bottom-area textarea { min-height: 50px !important; }
 /* ═══ 1×N 单行横向图片布局 ═══ */
 .bz-linear-row {
-    display: flex; flex-direction: row; gap: 4px; width: 100%;
-    align-items: stretch; justify-content: center;
+    display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important;
+    gap: 4px; width: 100%; align-items: stretch !important; justify-content: center;
+    overflow: hidden;
 }
 .bz-linear-row .bz-img-cell {
-    flex: 1 1 0; min-width: 0; position: relative; border-radius: 4px;
+    flex: 1 1 0 !important; min-width: 0; max-width: none;
+    position: relative; border-radius: 4px;
     display: flex; flex-direction: column; align-items: center;
-    overflow: visible !important; /* 不裁切图片 */
+    overflow: hidden !important;
 }
 .bz-linear-row .bz-img-cell img {
-    width: 100% !important; height: auto !important;
-    max-height: calc(100vh * var(--bz-image-ratio, 65) / 100 - 60px) !important;
+    width: 100% !important; height: 100% !important;
     object-fit: contain !important; display: block; border-radius: 4px;
-    /* 关键：不裁切，完整展示 */
 }
 .bz-img-cell.bz-empty { display: none !important; }
 .bz-img-info { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; font-size: 0.75rem; color: #666; flex-shrink: 0; }
