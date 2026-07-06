@@ -95,6 +95,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if 'bz_image_ratio' not in st.session_state: st.session_state.bz_image_ratio = settings.get('bz_image_ratio', 65)
         if 'layout_mode' not in st.session_state: st.session_state.layout_mode = settings.get('layout_mode', 'topbar')
         if 'topbar_collapsed' not in st.session_state: st.session_state.topbar_collapsed = False
+        if 'sidebar_visible' not in st.session_state: st.session_state.sidebar_visible = False
 
     def _render_a_zone_panels(self):
         """渲染A区的非统计面板（导出、AI预识别、设置、分类管理）"""
@@ -224,7 +225,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             self._run_old3col_layout(group)
 
     def _run_topbar_layout(self, group):
-        """顶部通栏布局：A区顶部 + 左侧列表 + 中B + 右C"""
+        """顶部通栏布局：A区顶部 + 中B + 右C（左侧列表可折叠）"""
         # ── 顶部折叠按钮 + 通栏A区 ──
         collapsed = st.session_state.get('topbar_collapsed', False)
         toggle_label = "▶ 展开控制栏" if collapsed else "▼ 收起控制栏"
@@ -237,24 +238,43 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 self.render_topbar()
                 self._render_a_zone_panels()
 
-        # ── 主体区域：左列表 + 中B + 右C ──
-        left_w = st.session_state.get('sidebar_width', 12)
-        b_width = st.session_state.layout_width
-        right_w = max(100 - left_w - b_width, 10)
-        col_left, col_b, col_c = st.columns([left_w, b_width, right_w])
+        # ── 左侧列表折叠开关 ──
+        sidebar_visible = st.session_state.get('sidebar_visible', False)
+        sidebar_label = "📂 隐藏列表" if sidebar_visible else "📂 文件列表"
+        if st.button(sidebar_label, key="sidebar_toggle", use_container_width=False):
+            st.session_state.sidebar_visible = not sidebar_visible
+            st.rerun()
 
-        with col_left:
-            self.render_sidebar_mini()
+        # ── 主体区域 ──
+        if sidebar_visible:
+            left_w = 12
+            b_width = st.session_state.layout_width
+            right_w = max(100 - left_w - b_width, 10)
+            col_left, col_b, col_c = st.columns([left_w, b_width, right_w])
 
-        with col_b:
-            if st.session_state.get('_batch_completed'):
-                self.render_completion_panel()
-            else:
-                with st.container():
-                    self.render_b_image_area(group)
+            with col_left:
+                self.render_sidebar_mini()
+            with col_b:
+                self._render_b_area(group)
+            with col_c:
+                self.render_control_panel(group)
+        else:
+            b_width = st.session_state.layout_width
+            right_w = max(100 - b_width, 10)
+            col_b, col_c = st.columns([b_width, right_w])
 
-        with col_c:
-            self.render_control_panel(group)
+            with col_b:
+                self._render_b_area(group)
+            with col_c:
+                self.render_control_panel(group)
+
+    def _render_b_area(self, group):
+        """B区渲染（复用）"""
+        if st.session_state.get('_batch_completed'):
+            self.render_completion_panel()
+        else:
+            with st.container():
+                self.render_b_image_area(group)
 
     def _run_bottom_layout(self, group):
         """底部通栏布局：B+C在上，A区在下"""

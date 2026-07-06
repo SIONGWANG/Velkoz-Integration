@@ -298,6 +298,7 @@ class DataMixin:
         st.session_state.pop('bz_image_ratio', None)
         st.session_state.pop('layout_mode', None)
         st.session_state.pop('topbar_collapsed', None)
+        st.session_state.pop('sidebar_visible', None)
         st.session_state.pop('sidebar_width', None)
 
     # ── CSV 路径 ──
