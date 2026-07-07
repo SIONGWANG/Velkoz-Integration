@@ -307,10 +307,16 @@ class ZoneCMixin:
                         if curr_idx < len(nav_ids) - 1:
                             st.session_state.current_id = nav_ids[curr_idx + 1]
                             st.session_state.focus_img_idx = 0
+                            st.session_state.needs_scroll_top = True
+                            all_idx = all_ids.index(st.session_state.current_id)
+                            preload_next_images(all_idx, nav_groups)
                         else:
                             if st.session_state.get('filter_pills', '全部') != '全部':
                                 st.session_state.current_id = nav_ids[0]
                                 st.session_state.focus_img_idx = 0
+                                st.session_state.needs_scroll_top = True
+                                all_idx = all_ids.index(st.session_state.current_id)
+                                preload_next_images(all_idx, nav_groups)
                                 st.toast("📋 筛选列表已全部处理完，回到首条", icon="✅")
                             else:
                                 st.session_state._batch_completed = True

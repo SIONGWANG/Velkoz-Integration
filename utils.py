@@ -45,10 +45,10 @@ else:
 
 # === ⚙️ 常量 ===
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
-PRELOAD_AHEAD = 5
+PRELOAD_AHEAD = 8
 MAX_DISPLAY_PX = 1920
 MAX_LOAD_PX = 3840      # 内存中保留的最大边长（4K），防止大图撑爆内存
-DISPLAY_JPEG_QUALITY = 92
+DISPLAY_JPEG_QUALITY = 85
 CONFIG_FILENAME = "categories_config.json"
 EVIDENCE_FOLDER_NAME = "_00_Evidence_All"
 

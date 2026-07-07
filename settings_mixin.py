@@ -189,19 +189,13 @@ class SettingsMixin:
                     return;
                 }
 
-                // ·键（反引号`）：双图模式打开第1张图，四图模式打开第3张图
+                // ·键（反引号`）：双图模式打开第1张图，四图模式打开第3张图(_3结尾)
                 if (e.key === '`') {
-                    const allBtnArr = doc.getElementsByTagName('button');
-                    const imgBtns = [];
-                    for (let i = 0; i < allBtnArr.length; i++) {
-                        if (allBtnArr[i].innerText.trim() === '📂📷') imgBtns.push(allBtnArr[i]);
-                    }
+                    const imgBtns = doc.querySelectorAll('button[data-bz-open-btn="1"]');
                     if (imgBtns.length >= 4) {
-                        // 四图模式：打开第三张图（索引2）
                         e.preventDefault();
                         imgBtns[2].click();
                     } else if (imgBtns.length >= 2) {
-                        // 双图模式：打开第一张图（索引0）
                         e.preventDefault();
                         imgBtns[0].click();
                     }

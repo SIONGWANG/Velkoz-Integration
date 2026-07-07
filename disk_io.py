@@ -204,9 +204,9 @@ def get_display_image_bytes(img_path):
     img_bytes = buf.getvalue()
     entry = (img_bytes, res_str)
     cache[cache_key] = entry
-    # 限制缓存：最多 50 条且总大小不超过 100MB
-    MAX_CACHE_ENTRIES = 50
-    MAX_CACHE_BYTES = 100 * 1024 * 1024  # 100MB
+    # 限制缓存：最多 100 条且总大小不超过 200MB
+    MAX_CACHE_ENTRIES = 100
+    MAX_CACHE_BYTES = 200 * 1024 * 1024  # 200MB
     while len(cache) > MAX_CACHE_ENTRIES:
         oldest = next(iter(cache))
         del cache[oldest]

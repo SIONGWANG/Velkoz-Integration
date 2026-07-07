@@ -444,7 +444,7 @@ class ZoneBMixin:
                               help=f"在系统查看器中打开 {img}", use_container_width=True,
                               on_click=self.open_in_system, args=(p,))
 
-        # 双击图片 → 触发对应 📂 按钮
+        # 双击图片 → 触发对应 📂 按钮，并添加自定义属性标识
         components.html("""
         <script>
         (function() {
@@ -452,6 +452,7 @@ class ZoneBMixin:
             const allBtns = Array.from(doc.querySelectorAll('button'));
             const openBtns = allBtns.filter(b => b.innerText.trim() === '📂📷');
             openBtns.forEach(btn => {
+                btn.setAttribute('data-bz-open-btn', '1');
                 btn.style.fontSize = '0.7rem';
                 btn.style.padding = '0 2px';
                 btn.style.minHeight = '20px';
