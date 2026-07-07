@@ -1,72 +1,40 @@
 请先不要改代码。先分析这个项目：
 1) 项目类型、入口文件、怎么运行
 2) 目录结构和核心模块
-3) 已知 bug：
-4）更新通知：
-# Mimo V1.7.0 迭代专用提示词（直接复制使用）
-## 前置基础信息
-当前软件版本：图片质检工具 V1.6.0，已修复CSV跨天时间BUG、支持双图/2×2四宫格切换；现有布局：左A统计筛选区 + 中间B图片区 + 右侧C操作判定三栏横向布局。
-本次迭代核心改动两点：
-1. 废除原有2×2网格四宫格，改为**1行4张横向平铺（1×4线性单列布局）**，同时保留原有双图（1×2横向平铺）模式；
-2. 将左侧A区全部功能迁移出侧边，不再占用图片横向宽度，释放中间图片预览区域；
-硬性约束：**1.6.0全部核心业务功能完整保留，CSV读写、快捷键、导出、标签、判定逻辑、历史数据兼容全部不变，仅调整页面布局与图片渲染网格**。
+3) 已知 bug：两个bug，（1）点击提交或快捷提交，屏幕会白一下，卡一下，如何让他快速一点，不卡一下（2）点击导出带图的excel表前端会显示这个streamlit.errors.StreamlitDuplicateElementId: There are multiple download_button elements with the same auto-generated ID. When this element is created, it is assigned an internal ID based on the element type and provided parameters. Multiple elements with the same type and parameters will cause this error.
 
-## 一、核心需求1：图片预览区重构，取消2×2四宫格，改为1×N横向线性排列
-### 原有问题
-2×2两行网格会垂直占用大量高度，竖向长图堆叠后挤压底部文本框；横向宽度被左侧A区压缩，四张小图尺寸偏小，观感拥挤。
-### 新版图片渲染规则（zone_b.py重写图片渲染逻辑）
-1. 仅保留两种预览模式，移除2×2四宫格选项：
-   - 双图模式：1行2列横向平铺（1×2）
-   - 四图模式：1行4列横向平铺（1×4）
-2. 渲染约束：
-   - 所有图片同一行水平排布，无上下分行；
-   - 统一图片最大高度限制，`object-fit: contain`等比例缩放，竖向长图仅缩小宽度，不会拉高整行容器；
-   - 空白图片槽位自动隐藏，不生成空白占位框；
-   - 每张图片下方保留原图分辨率、打开文件夹按钮、双击大图弹窗功能不变；
-3. 保留1.6.0成熟分层结构：图片预览上层容器 + 下层固定高度文本备注区，两层中间拖拽分割线保留，彻底杜绝文本框被挤压；
-4. 顶部切换控件修改：删除「四宫格」单选框，替换为「双图 / 四图」分段选择器，状态存入session_state持久化。
+To fix this error, please pass a unique key argument to the download_button element.
 
-## 二、核心需求2：原左侧A区整体迁移，释放图片横向宽度（主推：顶部通栏方案）
-### 布局全新架构（默认布局，同时保留旧三栏布局可选）
-整体页面分层：
-1. 最顶部：全局通栏A区（原左侧所有统计、筛选、导出、设置功能全部平移至此）
-   - 顶部通栏横向铺满整个窗口，自适应多列分组排版；
-   - 分组1：统计卡片（合格/不合格/待定/修改后合格、合格率）
-   - 分组2：筛选标签（全部/未检/合格/不合格/待定）
-   - 分组3：图片视图切换、自动搜索、全屏、横向/纵向占比调节滑块
-   - 分组4：导出管理、AI预识别、更多设置折叠面板
-   - 顶部栏增加折叠按钮，一键隐藏顶部栏，最大化图片可视区域；
-2. 页面主体区域（顶部栏下方，左右二分）
-   - 左窄栏：仅精简图片文件列表、抽检验收面板，宽度可拖动调节，无其他A区功能；
-   - 中间加宽B区：1×2/1×4横向平铺图片预览区，横向宽度大幅扩容，四张图横向并排展示更宽松；
-   - 右侧C区：原有判定、备注、截图、快捷标签、翻页按钮完全不变，布局不动；
-### 备选布局模式（设置内可切换，兼容老操作习惯）
-1. 旧版三栏布局（1.6.0原始布局）：左A+中B+右C，供老用户切换；
-2. 底部通栏布局：A区全部功能放在页面最下方，顶部完全留给图片预览；
-所有布局模式均统一使用「1×2/1×4单行横向图片排布」，不再出现2×2网格。
+Traceback:
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 689, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 264, in <module>
+    app.run()
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 186, in run
+    self._run_topbar_layout(group)
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 211, in _run_topbar_layout
+    self._render_b_area(group)
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 222, in _render_b_area
+    self.render_completion_panel()
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\zone_b.py", line 287, in render_completion_panel
+    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True)
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\runtime\metrics_util.py", line 698, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\widgets\button.py", line 772, in download_button
+    return self._download_button(
+           ^^^^^^^^^^^^^^^^^^^^^^
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\widgets\button.py", line 1339, in _download_button
+    element_id = compute_and_register_element_id(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 264, in compute_and_register_element_id
+    _register_element_id(ctx, element_type, element_id)
+File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 149, in _register_element_id
+    raise StreamlitDuplicateElementId(element_type)
+4）更新通知：新增功能，在四图模式下，点~会直接打开第三张图图片，在二图模式下不做变化，还是和原来一样
 
-## 三、全局强制开发约束
-1. 禁止删减任何原有核心功能：CSV跨天读取、图片缓存、EXIF自动旋转、快捷键、导出Excel、错误截图、标签管理、原子保存、打包脚本全部保留；
-2. 原有Mixin代码架构不重构，仅修改zone_a、zone_b、css_styles、settings_mixin渲染逻辑；
-3. 完全向下兼容V1.6.0所有文件：历史CSV、配置json、截图证据无需迁移；
-4. 所有新增布局状态、图片视图模式存入settings.json持久化，重启软件不重置；
-5. CSS样式保留原有蓝紫色主题，仅新增顶部/底部通栏、单行图片布局样式；
-6. 适配宽屏/小窗口，窗口缩小时顶部控件自动折叠进下拉菜单，单行图片自动等比缩小。
-
-## 四、开发执行顺序
-1. 重构zone_b图片渲染代码，删除2×2网格逻辑，实现1×2、1×4单行横向平铺；
-2. 修改顶部视图切换控件，移除四宫格选项，仅保留双图/四图切换；
-3. 重构zone_a，拆分顶部通栏组件+左侧极简文件列表组件，迁移全部A区功能至顶部；
-4. 新增布局切换配置（顶部通栏/底部通栏/旧三栏）写入settings_mixin；
-5. 升级css_styles，适配单行横向图片、顶部通栏折叠样式；
-6. 全量自测验证：
-   - 四图模式1行4张横向展示，竖向图片不挤压底部文本；
-   - A区迁移至顶部，图片区域宽度充足，不拥挤；
-   - 所有判定、导出、筛选、跨天读取CSV功能正常；
-   - 布局切换、视图切换无页面错乱。
-
-## 五、最终交付物
-1. 完整修改后全套源码，保持原有目录结构；
-2. 更新变更说明文档，标注zone_a、zone_b、css_styles、settings_mixin修改点；
-3. 自测验证清单，覆盖单行图片布局、A区顶部迁移、多布局切换、全部核心业务流程测试项。
 然后给出修复+新增功能的大致步骤和涉及文件。

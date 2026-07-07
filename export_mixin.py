@@ -295,7 +295,10 @@ class ExportMixin:
 
     def export_excel_with_images(self, include_screenshots=True):
         csv_file = self._get_active_csv_path()
-        df = self._get_df(csv_file)
+        if csv_file == "_merged_":
+            df = self._get_merged_df()
+        else:
+            df = self._get_df(csv_file)
         if df.empty:
             return None, "❌ 找不到 CSV 记录文件"
 
@@ -305,7 +308,7 @@ class ExportMixin:
         if df.empty:
             return None, "❌ 当前数据组内无记录"
 
-        records_dir = os.path.dirname(csv_file) or BASE_DIR
+        records_dir = os.path.dirname(csv_file) if csv_file != "_merged_" else (st.session_state.get('root_path', '') or BASE_DIR)
         os.makedirs(records_dir, exist_ok=True)
         prefix = self.get_output_prefix()
         excel_filename = os.path.join(records_dir, f"{prefix}_验收记录.xlsx")
@@ -337,7 +340,7 @@ class ExportMixin:
 
                         for img_rel_path in paths:
                             norm_path = img_rel_path.replace("\\", os.sep).replace("/", os.sep)
-                            csv_dir = os.path.dirname(csv_file) or BASE_DIR
+                            csv_dir = os.path.dirname(csv_file) if csv_file != "_merged_" else (st.session_state.get('root_path', '') or BASE_DIR)
                             full_img_path = os.path.join(csv_dir, norm_path)
                             if not os.path.exists(full_img_path):
                                 full_img_path = os.path.join(BASE_DIR, norm_path)
