@@ -191,7 +191,11 @@ class SettingsMixin:
 
                 // ·键（反引号`）：双图模式打开第1张图，四图模式打开第3张图
                 if (e.key === '`') {
-                    const openBtns = allBtns.filter(b => b.innerText.trim() === '📂');
+                    const allBtnArr = doc.getElementsByTagName('button');
+                    const openBtns = [];
+                    for (let i = 0; i < allBtnArr.length; i++) {
+                        if (allBtnArr[i].innerText.trim() === '📂') openBtns.push(allBtnArr[i]);
+                    }
                     if (openBtns.length >= 4) {
                         // 四图模式：打开第三张图（索引2）
                         e.preventDefault();

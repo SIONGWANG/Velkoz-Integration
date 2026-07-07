@@ -316,7 +316,7 @@ class ZoneCMixin:
                                 st.toast("📋 筛选列表已全部处理完，回到首条", icon="✅")
                             else:
                                 st.session_state._batch_completed = True
-                        self._rerun_app()
+                        # form_submit_button 会自动触发 app 级 rerun，无需额外调用
                 else:
                     if save_msg:
                         st.error(save_msg)
