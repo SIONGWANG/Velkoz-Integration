@@ -1,40 +1,7 @@
 请先不要改代码。先分析这个项目：
 1) 项目类型、入口文件、怎么运行
 2) 目录结构和核心模块
-3) 已知 bug：两个bug，（1）点击提交或快捷提交，屏幕会白一下，卡一下，如何让他快速一点，不卡一下（2）点击导出带图的excel表前端会显示这个streamlit.errors.StreamlitDuplicateElementId: There are multiple download_button elements with the same auto-generated ID. When this element is created, it is assigned an internal ID based on the element type and provided parameters. Multiple elements with the same type and parameters will cause this error.
-
-To fix this error, please pass a unique key argument to the download_button element.
-
-Traceback:
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 129, in exec_func_with_error_handling
-    result = func()
-             ^^^^^^
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 689, in code_to_exec
-    exec(code, module.__dict__)  # noqa: S102
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 264, in <module>
-    app.run()
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 186, in run
-    self._run_topbar_layout(group)
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 211, in _run_topbar_layout
-    self._render_b_area(group)
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\app.py", line 222, in _render_b_area
-    self.render_completion_panel()
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\zone_b.py", line 287, in render_completion_panel
-    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True)
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\runtime\metrics_util.py", line 698, in wrapped_func
-    result = non_optional_func(*args, **kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\widgets\button.py", line 772, in download_button
-    return self._download_button(
-           ^^^^^^^^^^^^^^^^^^^^^^
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\widgets\button.py", line 1339, in _download_button
-    element_id = compute_and_register_element_id(
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 264, in compute_and_register_element_id
-    _register_element_id(ctx, element_type, element_id)
-File "D:\审视之眼Pro\Vel'Koz\Velkoz-Integration\python\Lib\site-packages\streamlit\elements\lib\utils.py", line 149, in _register_element_id
-    raise StreamlitDuplicateElementId(element_type)
-4）更新通知：新增功能，在四图模式下，点~会直接打开第三张图图片，在二图模式下不做变化，还是和原来一样
+3) 已知 bug：
+4）更新通知：
 
 然后给出修复+新增功能的大致步骤和涉及文件。

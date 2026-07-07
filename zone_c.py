@@ -308,18 +308,15 @@ class ZoneCMixin:
                         if curr_idx < len(nav_ids) - 1:
                             st.session_state.current_id = nav_ids[curr_idx + 1]
                             st.session_state.focus_img_idx = 0
-                            # 跳转下一条需要在 fragment 外更新 B 区，触发 app 级别单次 rerun
-                            self._rerun_app()
                         else:
                             # 筛选条件下不触发全量完成面板，跳回筛选列表首条
                             if st.session_state.get('filter_pills', '全部') != '全部':
                                 st.session_state.current_id = nav_ids[0]
                                 st.session_state.focus_img_idx = 0
                                 st.toast("📋 筛选列表已全部处理完，回到首条", icon="✅")
-                                self._rerun_app()
                             else:
                                 st.session_state._batch_completed = True
-                                self._rerun_app()
+                        st.rerun()
                 else:
                     if save_msg:
                         st.error(save_msg)

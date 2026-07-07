@@ -189,12 +189,19 @@ class SettingsMixin:
                     return;
                 }
 
-                // 系统查看器
+                // 系统查看器 / 四图模式下直接打开第三张图
                 if (e.key === '`' || e.key === '~') {
-                    const btn = findBtn(b => b.innerText.includes('🖼️'));
-                    if (btn && !btn.disabled) {
+                    const openBtns = allBtns.filter(b => b.innerText.trim() === '📂');
+                    if (openBtns.length >= 4) {
+                        // 四图模式：直接打开第三张图
                         e.preventDefault();
-                        btn.click();
+                        openBtns[2].click();
+                    } else {
+                        const btn = findBtn(b => b.innerText.includes('🖼️'));
+                        if (btn && !btn.disabled) {
+                            e.preventDefault();
+                            btn.click();
+                        }
                     }
                 }
             }
