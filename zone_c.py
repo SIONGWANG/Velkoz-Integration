@@ -304,19 +304,17 @@ class ZoneCMixin:
                     elif is_submit:
                         st.session_state['_ee_submit_flash'] = True
                         on_status_judged(status_sel)
-                        # 使用 nav_ids（已筛选）而非 all_ids（全量），避免筛选条件下跳转错误
                         if curr_idx < len(nav_ids) - 1:
                             st.session_state.current_id = nav_ids[curr_idx + 1]
                             st.session_state.focus_img_idx = 0
                         else:
-                            # 筛选条件下不触发全量完成面板，跳回筛选列表首条
                             if st.session_state.get('filter_pills', '全部') != '全部':
                                 st.session_state.current_id = nav_ids[0]
                                 st.session_state.focus_img_idx = 0
                                 st.toast("📋 筛选列表已全部处理完，回到首条", icon="✅")
                             else:
                                 st.session_state._batch_completed = True
-                        # form_submit_button 会自动触发 app 级 rerun，无需额外调用
+                        self._rerun_app()
                 else:
                     if save_msg:
                         st.error(save_msg)

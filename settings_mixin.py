@@ -192,18 +192,18 @@ class SettingsMixin:
                 // ·键（反引号`）：双图模式打开第1张图，四图模式打开第3张图
                 if (e.key === '`') {
                     const allBtnArr = doc.getElementsByTagName('button');
-                    const openBtns = [];
+                    const imgBtns = [];
                     for (let i = 0; i < allBtnArr.length; i++) {
-                        if (allBtnArr[i].innerText.trim() === '📂') openBtns.push(allBtnArr[i]);
+                        if (allBtnArr[i].innerText.trim() === '📂📷') imgBtns.push(allBtnArr[i]);
                     }
-                    if (openBtns.length >= 4) {
+                    if (imgBtns.length >= 4) {
                         // 四图模式：打开第三张图（索引2）
                         e.preventDefault();
-                        openBtns[2].click();
-                    } else if (openBtns.length >= 2) {
+                        imgBtns[2].click();
+                    } else if (imgBtns.length >= 2) {
                         // 双图模式：打开第一张图（索引0）
                         e.preventDefault();
-                        openBtns[0].click();
+                        imgBtns[0].click();
                     }
                 }
 

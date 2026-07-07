@@ -440,7 +440,7 @@ class ZoneBMixin:
             if i < len(img_cols):
                 with img_cols[i]:
                     p = os.path.join(group['root'], img)
-                    st.button("📂", key=f"open_bimg_{group['id']}_{i}",
+                    st.button("📂📷", key=f"open_bimg_{group['id']}_{i}",
                               help=f"在系统查看器中打开 {img}", use_container_width=True,
                               on_click=self.open_in_system, args=(p,))
 
@@ -450,7 +450,7 @@ class ZoneBMixin:
         (function() {
             const doc = window.parent.document;
             const allBtns = Array.from(doc.querySelectorAll('button'));
-            const openBtns = allBtns.filter(b => b.innerText.trim() === '📂');
+            const openBtns = allBtns.filter(b => b.innerText.trim() === '📂📷');
             openBtns.forEach(btn => {
                 btn.style.fontSize = '0.7rem';
                 btn.style.padding = '0 2px';
