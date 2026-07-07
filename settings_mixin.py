@@ -189,19 +189,26 @@ class SettingsMixin:
                     return;
                 }
 
-                // 系统查看器 / 四图模式下直接打开第三张图
-                if (e.key === '`' || e.key === '~') {
+                // ·键（反引号`）：双图模式打开第1张图，四图模式打开第3张图
+                if (e.key === '`') {
                     const openBtns = allBtns.filter(b => b.innerText.trim() === '📂');
                     if (openBtns.length >= 4) {
-                        // 四图模式：直接打开第三张图
+                        // 四图模式：打开第三张图（索引2）
                         e.preventDefault();
                         openBtns[2].click();
-                    } else {
-                        const btn = findBtn(b => b.innerText.includes('🖼️'));
-                        if (btn && !btn.disabled) {
-                            e.preventDefault();
-                            btn.click();
-                        }
+                    } else if (openBtns.length >= 2) {
+                        // 双图模式：打开第一张图（索引0）
+                        e.preventDefault();
+                        openBtns[0].click();
+                    }
+                }
+
+                // ~键：系统查看器（原功能保留）
+                if (e.key === '~') {
+                    const btn = findBtn(b => b.innerText.includes('🖼️'));
+                    if (btn && !btn.disabled) {
+                        e.preventDefault();
+                        btn.click();
                     }
                 }
             }
@@ -586,7 +593,7 @@ class SettingsMixin:
 
     def _render_hotkeys_section(self):
         """快捷键开关 + 说明面板"""
-        enable_hotkeys = st.toggle("⌨️ 启用快捷键 (1-4, ~)",
+        enable_hotkeys = st.toggle("⌨️ 启用快捷键 (1-4, ·)",
                                     value=st.session_state.get('enable_hotkeys', True))
         if enable_hotkeys != st.session_state.get('enable_hotkeys'):
             st.session_state.enable_hotkeys = enable_hotkeys
@@ -602,7 +609,8 @@ class SettingsMixin:
             | `X` | 快捷合格提交 |
             | `V` | 修改合格提交 |
             | `1` - `4` | 切换图片/视图 |
-            | `` ` `` 反引号 | 在系统查看器中打开图片 |
+            | `·` 反引号 | 快捷打开图片（双图→第1张，四图→第3张） |
+            | `~` | 在系统查看器中打开图片 |
             """)
 
     def _on_dark_mode_toggle(self):

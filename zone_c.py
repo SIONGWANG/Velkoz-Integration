@@ -316,7 +316,7 @@ class ZoneCMixin:
                                 st.toast("📋 筛选列表已全部处理完，回到首条", icon="✅")
                             else:
                                 st.session_state._batch_completed = True
-                        st.rerun()
+                        self._rerun_app()
                 else:
                     if save_msg:
                         st.error(save_msg)
