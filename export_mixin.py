@@ -310,6 +310,13 @@ class ExportMixin:
         prefix = self.get_output_prefix()
         excel_filename = os.path.join(records_dir, f"{prefix}_验收记录.xlsx")
 
+        # 如果备注列为空，则用标签列填充（保持备注和标签一致）
+        if '备注' in df.columns and '标签' in df.columns:
+            df['备注'] = df.apply(
+                lambda row: row['标签'] if (pd.isna(row['备注']) or str(row['备注']).strip() == '') else row['备注'],
+                axis=1
+            )
+
         try:
             with pd.ExcelWriter(excel_filename, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='验收记录')
@@ -422,7 +429,7 @@ class ExportMixin:
             c_dl, c_open = st.columns(2)
             with c_dl:
                 with open(excel_path, "rb") as f:
-                    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True)
+                    st.download_button("⬇️ 下载 Excel", f, file_name=os.path.basename(excel_path), use_container_width=True, key="download_excel_panel")
             with c_open:
                 if st.button("📂 打开文件夹", use_container_width=True):
                     self.open_in_system(export_dir)
