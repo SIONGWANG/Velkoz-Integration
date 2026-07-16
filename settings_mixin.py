@@ -13,6 +13,9 @@ from utils import (
     save_categories_config, save_scan_rules, DEFAULT_SCAN_RULES,
 )
 
+# 二级分类快捷键序列（按顺序分配）
+SECOND_LEVEL_SHORTCUTS = ["D", "F", "G", "H", "J", "K", "L"]
+
 
 class SettingsMixin:
     """设置读写、标签管理、UI 控件、配置面板"""
@@ -110,97 +113,138 @@ class SettingsMixin:
         components.html(btn_html, height=45)
 
     def inject_hotkeys(self):
-        js_code = """
+        # 获取二级分类快捷键映射
+        l2_shortcuts = self._get_l2_shortcuts_json()
+        js_code = f"""
         <script>
-        (function() {
+        (function() {{
             const doc = window.parent.document;
 
-            function findBtn(test) {
-                const btns = doc.getElementsByTagName('button');
-                for (let i = 0; i < btns.length; i++) {
-                    if (test(btns[i])) return btns[i];
-                }
-                return null;
-            }
+            // 二级分类快捷键映射
+            const l2Shortcuts = {l2_shortcuts};
 
-            function handleHotkeys(e) {
+            function findBtn(test) {{
+                const btns = doc.getElementsByTagName('button');
+                for (let i = 0; i < btns.length; i++) {{
+                    if (test(btns[i])) return btns[i];
+                }}
+                return null;
+            }}
+
+            function findL2Button(key) {{
+                const mapping = l2Shortcuts[key];
+                if (!mapping) return null;
+                // 查找所有按钮，匹配二级分类名称
+                const btns = doc.getElementsByTagName('button');
+                for (let i = 0; i < btns.length; i++) {{
+                    const text = btns[i].innerText.trim();
+                    // 匹配格式: "🟢 分类名  [快捷键]" 或 "🟢 分类名"
+                    if (text.includes(mapping) && text.includes('🟢')) return btns[i];
+                }}
+                return null;
+            }}
+
+            function handleHotkeys(e) {{
                 const tag = doc.activeElement.tagName;
                 if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-                // 提交并下一条 — 空格
-                if (e.key === ' ') {
-                    const btn = findBtn(b => b.innerText.includes('提交并下一条'));
-                    if (btn && !btn.disabled) {
+                // 二级分类快捷键（仅在有映射时生效）
+                const key = e.key.toUpperCase();
+                if (l2Shortcuts[key]) {{
+                    const btn = findL2Button(key);
+                    if (btn && !btn.disabled) {{
                         e.preventDefault();
                         btn.click();
-                    }
+                        return;
+                    }}
+                }}
+
+                // 提交并下一条 — 空格
+                if (e.key === ' ') {{
+                    const btn = findBtn(b => b.innerText.includes('提交并下一条'));
+                    if (btn && !btn.disabled) {{
+                        e.preventDefault();
+                        btn.click();
+                    }}
                     return;
-                }
+                }}
 
                 // 快捷合格提交 — X
-                if (e.key === 'x' || e.key === 'X') {
+                if (e.key === 'x' || e.key === 'X') {{
                     const btn = findBtn(b => b.innerText.includes('快捷合格'));
-                    if (btn && !btn.disabled) {
+                    if (btn && !btn.disabled) {{
                         e.preventDefault();
                         btn.click();
-                    }
+                    }}
                     return;
-                }
+                }}
 
                 // 修改合格提交 — V
-                if (e.key === 'v' || e.key === 'V') {
+                if (e.key === 'v' || e.key === 'V') {{
                     const btn = findBtn(b => b.innerText.includes('修改合格'));
-                    if (btn && !btn.disabled) {
+                    if (btn && !btn.disabled) {{
                         e.preventDefault();
                         btn.click();
-                    }
+                    }}
                     return;
-                }
+                }}
 
                 // 上一条
-                if (e.key === 'ArrowLeft') {
+                if (e.key === 'ArrowLeft') {{
                     e.preventDefault();
                     const btn = findBtn(b => b.innerText.includes('⬅️') || b.innerText.includes('上一条'));
                     if (btn && !btn.disabled) btn.click();
                     return;
-                }
+                }}
 
                 // 下一条
-                if (e.key === 'ArrowRight') {
+                if (e.key === 'ArrowRight') {{
                     e.preventDefault();
                     const btn = findBtn(b => b.innerText.includes('下一条 ➡️') || (b.innerText.includes('下一条') && !b.innerText.includes('提交')));
                     if (btn && !btn.disabled) btn.click();
                     return;
-                }
+                }}
 
                 // 视图切换 1-4
-                const viewKeys = {'1': '🔍', '2': '🔴 原图', '3': '图 1', '4': '图 2'};
-                if (viewKeys[e.key]) {
+                const viewKeys = {{'1': '🔍', '2': '🔴 原图', '3': '图 1', '4': '图 2'}};
+                if (viewKeys[e.key]) {{
                     const needle = viewKeys[e.key];
                     const btn = findBtn(b => b.innerText.includes(needle));
-                    if (btn && !btn.disabled) {
+                    if (btn && !btn.disabled) {{
                         e.preventDefault();
                         btn.click();
-                    }
+                    }}
                     return;
-                }
+                }}
 
                 // 系统查看器
-                if (e.key === '`' || e.key === '~') {
+                if (e.key === '`' || e.key === '~') {{
                     const btn = findBtn(b => b.innerText.includes('🖼️'));
-                    if (btn && !btn.disabled) {
+                    if (btn && !btn.disabled) {{
                         e.preventDefault();
                         btn.click();
-                    }
-                }
-            }
+                    }}
+                }}
+            }}
             doc.removeEventListener('keydown', window.parent.myHotkeysHandler);
             window.parent.myHotkeysHandler = handleHotkeys;
             doc.addEventListener('keydown', window.parent.myHotkeysHandler);
-        })();
+        }})();
         </script>
         """
         components.html(js_code, height=0, width=0)
+
+    def _get_l2_shortcuts_json(self):
+        """生成二级分类快捷键映射JSON"""
+        l2_mapping = st.session_state.categories_config.get('L2', DEFAULT_CATEGORIES['L2'])
+        l1 = st.session_state.get('sticky_l1', '')
+        l2_opts = l2_mapping.get(l1, [])
+
+        shortcuts = {}
+        for i, opt in enumerate(l2_opts):
+            if i < len(SECOND_LEVEL_SHORTCUTS):
+                shortcuts[SECOND_LEVEL_SHORTCUTS[i]] = opt
+        return json.dumps(shortcuts, ensure_ascii=False)
 
     def open_in_system(self, path):
         if not os.path.exists(path):

@@ -5,6 +5,7 @@ import os
 from utils import DEFAULT_CATEGORIES
 from disk_io import preload_next_images
 from easter_eggs import on_status_judged, on_screenshot_pasted, on_undo_status
+from settings_mixin import SECOND_LEVEL_SHORTCUTS
 
 STATUS_OPTIONS = ["合格", "不合格", "修改后合格", "待定"]
 
@@ -135,11 +136,30 @@ class ZoneCMixin:
 
             l2_opts = l2_mapping.get(st.session_state.sticky_l1, [])
             if l2_opts:
-                l2_display = [f"🟢 {opt}" for opt in l2_opts]
-                l2_default = f"🟢 {st.session_state.sticky_l2}" if st.session_state.sticky_l2 else None
+                # 生成带快捷键提示的显示文本
+                l2_display = []
+                for i, opt in enumerate(l2_opts):
+                    if i < len(SECOND_LEVEL_SHORTCUTS):
+                        l2_display.append(f"🟢 {opt}  [{SECOND_LEVEL_SHORTCUTS[i]}]")
+                    else:
+                        l2_display.append(f"🟢 {opt}")
+
+                # 查找当前选中项的显示文本
+                l2_default = None
+                if st.session_state.sticky_l2:
+                    for display in l2_display:
+                        if st.session_state.sticky_l2 in display:
+                            l2_default = display
+                            break
+
                 try: l2_sel_display = st.pills("L2", l2_display, selection_mode="single", default=l2_default, label_visibility="collapsed")
                 except Exception: l2_sel_display = st.radio("L2", l2_display, label_visibility="collapsed")
-                l2_sel = l2_sel_display.replace("🟢 ", "") if l2_sel_display else None
+
+                # 提取实际分类名称（去掉快捷键标记）
+                if l2_sel_display:
+                    l2_sel = l2_sel_display.replace("🟢 ", "").split("  [")[0].strip()
+                else:
+                    l2_sel = None
                 if l2_sel != st.session_state.sticky_l2: st.session_state.sticky_l2 = l2_sel
             else: l2_sel = None
         else:
