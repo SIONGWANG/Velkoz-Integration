@@ -97,6 +97,7 @@ class ImageDock(QMainWindow):
         self.image_cache = OrderedDict()  # LRU缓存
         self.cache_max = 50
         self.settings_file = os.path.join(os.path.expanduser('~'), '.imagedock_settings.json')
+        self.layout_mode = 'vertical'  # vertical / horizontal
 
         self._setup_ui()
         self._load_settings()
@@ -109,9 +110,29 @@ class ImageDock(QMainWindow):
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
 
+        # 工具栏
+        from PySide6.QtWidgets import QHBoxLayout, QPushButton
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_vertical = QPushButton("纵向")
+        self.btn_vertical.setCheckable(True)
+        self.btn_vertical.setChecked(True)
+        self.btn_vertical.clicked.connect(lambda: self._set_layout('vertical'))
+        toolbar.addWidget(self.btn_vertical)
+
+        self.btn_horizontal = QPushButton("横向")
+        self.btn_horizontal.setCheckable(True)
+        self.btn_horizontal.clicked.connect(lambda: self._set_layout('horizontal'))
+        toolbar.addWidget(self.btn_horizontal)
+
+        toolbar.addStretch()
+
         self.status_label = QLabel("就绪 - 等待连接...")
         self.status_label.setStyleSheet("color: #666; font-size: 11px; padding: 2px;")
-        main_layout.addWidget(self.status_label)
+        toolbar.addWidget(self.status_label)
+
+        main_layout.addLayout(toolbar)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -127,6 +148,8 @@ class ImageDock(QMainWindow):
         self.setStyleSheet("""
             QMainWindow { background-color: #f5f5f5; }
             QScrollArea { border: none; background-color: #f5f5f5; }
+            QPushButton { padding: 4px 12px; border: 1px solid #ccc; border-radius: 4px; }
+            QPushButton:checked { background-color: #6366f1; color: white; border-color: #6366f1; }
         """)
 
     def _start_server(self):
@@ -193,21 +216,42 @@ class ImageDock(QMainWindow):
         else:
             self.status_label.setText(f"{len(images)} 张图片 - 加载中...")
 
-        # 创建标签
-        for i, path in enumerate(images):
-            label = QLabel()
-            label.setAlignment(Qt.AlignCenter)
-            label.setMinimumSize(100, 100)
-            self.image_labels.append(label)
-            self.content_layout.addWidget(label)
+        if self.layout_mode == 'horizontal':
+            # 横向布局：使用QHBoxLayout
+            from PySide6.QtWidgets import QHBoxLayout
+            container = QWidget()
+            h_layout = QHBoxLayout(container)
+            h_layout.setContentsMargins(0, 0, 0, 0)
+            h_layout.setSpacing(4)
 
-            # 优先使用缓存
-            if path in self.image_cache:
-                self._show_image(i, self.image_cache[path])
-            else:
-                # 后台加载
-                loader = ImageLoader(i, path, self.signals, self.image_cache)
-                self.thread_pool.start(loader)
+            for i, path in enumerate(images):
+                label = QLabel()
+                label.setAlignment(Qt.AlignCenter)
+                label.setMinimumSize(100, 100)
+                self.image_labels.append(label)
+                h_layout.addWidget(label)
+
+                if path in self.image_cache:
+                    self._show_image(i, self.image_cache[path])
+                else:
+                    loader = ImageLoader(i, path, self.signals, self.image_cache)
+                    self.thread_pool.start(loader)
+
+            self.content_layout.addWidget(container)
+        else:
+            # 纵向布局
+            for i, path in enumerate(images):
+                label = QLabel()
+                label.setAlignment(Qt.AlignCenter)
+                label.setMinimumSize(100, 100)
+                self.image_labels.append(label)
+                self.content_layout.addWidget(label)
+
+                if path in self.image_cache:
+                    self._show_image(i, self.image_cache[path])
+                else:
+                    loader = ImageLoader(i, path, self.signals, self.image_cache)
+                    self.thread_pool.start(loader)
 
     @Slot(int, object)
     def _on_image_loaded(self, index, pixmap):
@@ -229,13 +273,36 @@ class ImageDock(QMainWindow):
         if index < len(self.image_labels):
             label = self.image_labels[index]
             available_width = max(100, self.scroll_area.width() - 20)
-            scaled = pixmap.scaled(
-                available_width, available_width * 2,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
-            label.setPixmap(scaled)
-            label.setFixedHeight(scaled.height())
+
+            if self.layout_mode == 'horizontal':
+                # 横向：固定高度，宽度自适应
+                fixed_height = 300
+                scaled = pixmap.scaled(
+                    available_width, fixed_height,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                label.setPixmap(scaled)
+                label.setFixedHeight(scaled.height())
+            else:
+                # 纵向：固定宽度，高度自适应
+                scaled = pixmap.scaled(
+                    available_width, available_width * 2,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                label.setPixmap(scaled)
+                label.setFixedHeight(scaled.height())
+
+    def _set_layout(self, mode):
+        """切换布局模式"""
+        self.layout_mode = mode
+        self.btn_vertical.setChecked(mode == 'vertical')
+        self.btn_horizontal.setChecked(mode == 'horizontal')
+        self._save_settings()
+        # 重新加载图片
+        if self.current_images:
+            self._load_images(self.current_images)
 
     def _on_log(self, msg):
         self.status_label.setText(msg)
@@ -254,6 +321,9 @@ class ImageDock(QMainWindow):
                     settings = json_mod.load(f)
                 self.resize(settings.get('width', 600), settings.get('height', 800))
                 self.move(settings.get('x', 100), settings.get('y', 100))
+                self.layout_mode = settings.get('layout', 'vertical')
+                self.btn_vertical.setChecked(self.layout_mode == 'vertical')
+                self.btn_horizontal.setChecked(self.layout_mode == 'horizontal')
         except:
             pass
 
@@ -264,7 +334,8 @@ class ImageDock(QMainWindow):
                 'x': self.x(),
                 'y': self.y(),
                 'width': self.width(),
-                'height': self.height()
+                'height': self.height(),
+                'layout': self.layout_mode
             }
             with open(self.settings_file, 'w') as f:
                 json_mod.dump(settings, f)
