@@ -13,6 +13,7 @@ from utils import (
 from css_styles import MAIN_CSS, STATUS_BUTTON_JS
 from disk_io import load_qa_report
 from data_mixin import DataMixin
+from viewer import get_sync_manager
 from settings_mixin import SettingsMixin
 from export_mixin import ExportMixin
 from zone_a import ZoneAMixin
@@ -206,6 +207,21 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         else:
             group = current_group
             self.sync_state_from_history(group['id'])
+
+            # 同步图片到ImageDock（发送文件夹所有图片）
+            try:
+                sync = get_sync_manager()
+                img_groups = st.session_state.data_groups
+                all_ids = [g['id'] for g in img_groups]
+                curr_idx = all_ids.index(group['id']) if group['id'] in all_ids else 0
+                # 获取文件夹中所有图片
+                root = group.get('root', '')
+                all_images = [os.path.join(root, f) for f in os.listdir(root)
+                             if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))
+                             and os.path.isfile(os.path.join(root, f))]
+                sync.update_images(group['id'], curr_idx + 1, len(all_ids), all_images)
+            except Exception:
+                pass
 
             # === B 区 ===
             with col_b:
