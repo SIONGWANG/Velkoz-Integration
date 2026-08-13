@@ -134,6 +134,12 @@ class ImageDock(QMainWindow):
         self.btn_horizontal.clicked.connect(lambda: self._set_layout('horizontal'))
         toolbar.addWidget(self.btn_horizontal)
 
+        self.btn_pet = QPushButton("小精灵")
+        self.btn_pet.setObjectName("petModeBtn")
+        self.btn_pet.setToolTip("最小化为桌面小精灵（点击小精灵恢复）")
+        self.btn_pet.clicked.connect(self._minimize_to_pet)
+        toolbar.addWidget(self.btn_pet)
+
         toolbar.addStretch()
 
         self.status_label = QLabel("就绪 - 等待连接...")
@@ -158,6 +164,8 @@ class ImageDock(QMainWindow):
             QScrollArea { border: none; background-color: #f5f5f5; }
             QPushButton { padding: 4px 12px; border: 1px solid #ccc; border-radius: 4px; }
             QPushButton:checked { background-color: #6366f1; color: white; border-color: #6366f1; }
+            QPushButton#petModeBtn { background-color: #f3e8ff; border-color: #c4b5fd; color: #6d28d9; }
+            QPushButton#petModeBtn:hover { background-color: #ede9fe; }
         """)
 
     def _start_server(self):
@@ -301,6 +309,15 @@ class ImageDock(QMainWindow):
                 )
                 label.setPixmap(scaled)
                 label.setFixedHeight(scaled.height())
+
+    def _minimize_to_pet(self):
+        """最小化为桌面小精灵（通过 DockManager 切换）。"""
+        try:
+            from viewer.dock_manager import get_dock_manager
+            get_dock_manager().minimize_to_pet()
+        except Exception as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "小精灵", f"切换到小精灵失败: {e}")
 
     def _set_layout(self, mode):
         """切换布局模式"""

@@ -33,9 +33,11 @@ class DockManager:
         self._thread = None
         self._app = None
         self._dock = None
+        self._pet = None
         self._started = False
         self._lock = threading.Lock()
         self._visible = False
+        self._pet_mode = False
 
     # ── 生命周期 ──
 
@@ -65,6 +67,7 @@ class DockManager:
             from PySide6.QtWidgets import QApplication
             from PySide6.QtCore import QTimer
             from viewer.image_dock import ImageDock
+            from viewer.eye_pet import EyePet
         except Exception as e:
             logging.warning("ImageDock 初始化失败: %s", e)
             return
@@ -72,6 +75,8 @@ class DockManager:
             self._app = QApplication.instance() or QApplication([])
             self._dock = ImageDock(server_mode=False)
             self._dock.hide()
+            self._pet = EyePet(on_click=self._restore_pet_clicked)
+            self._pet.hide()
 
             def poll():
                 try:
@@ -88,6 +93,19 @@ class DockManager:
         except Exception as e:
             logging.warning("ImageDock 事件循环异常: %s", e)
 
+    def _restore_pet_clicked(self):
+        """小精灵被点击 → 恢复悬浮窗。"""
+        try:
+            if self._dock is not None and self._pet is not None:
+                self._pet.hide()
+                self._dock.show()
+                self._dock.raise_()
+                self._dock.activateWindow()
+                self._visible = True
+                self._pet_mode = False
+        except Exception as e:
+            logging.warning("恢复悬浮窗失败: %s", e)
+
     def _dispatch(self, item):
         """处理队列中的指令（在 Qt 线程内执行）。"""
         try:
@@ -100,13 +118,23 @@ class DockManager:
                     item.get("images", []),
                 )
             elif cmd == "show" and self._dock is not None:
+                self._pet.hide()
                 if not self._visible:
                     self._dock.show()
                     self._dock.raise_()
                     self._visible = True
+                self._pet_mode = False
             elif cmd == "hide" and self._dock is not None:
                 self._dock.hide()
+                self._pet.hide()
                 self._visible = False
+                self._pet_mode = False
+            elif cmd == "minimize_to_pet" and self._pet is not None:
+                self._dock.hide()
+                self._pet.show()
+                self._pet.raise_()
+                self._visible = False
+                self._pet_mode = True
         except Exception as e:
             logging.warning("ImageDock 指令处理失败: %s", e)
 
@@ -142,6 +170,16 @@ class DockManager:
             return False
         try:
             self._queue.put({"cmd": "hide"}, timeout=0.1)
+            return True
+        except (queue.Full, Exception):
+            return False
+
+    def minimize_to_pet(self):
+        """将悬浮窗最小化为桌面小精灵。返回是否已入队。"""
+        if not self.ensure_started():
+            return False
+        try:
+            self._queue.put({"cmd": "minimize_to_pet"}, timeout=0.1)
             return True
         except (queue.Full, Exception):
             return False

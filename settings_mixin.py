@@ -866,6 +866,7 @@ class SettingsMixin:
                 sync.close_dock()
                 st.rerun()
         st.caption("悬浮窗显示当前样本全部图片；关闭后可随时重新打开并自动同步。")
+        st.caption("悬浮窗工具栏点「小精灵」可最小化为桌面小精灵（👁 大眼睛），点击小精灵或右键菜单可恢复悬浮窗，可拖动到任意位置。")
 
     def _render_hotkeys_section(self):
         """快捷键开关 + 说明面板"""

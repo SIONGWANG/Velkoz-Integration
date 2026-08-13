@@ -425,6 +425,14 @@ class DataMixin:
             return []
 
     def get_csv_filename(self):
+        """确定当前生效的验收记录 CSV 路径。
+
+        规则：
+        1. 用户显式选中的 CSV（selected_csv）优先；
+        2. 否则取当天文件 {任务}_{操作员}_{日期}_验收记录.csv；
+        3. 若当天文件不存在（如跨天继续昨天的质检），自动回退到同任务、同操作员
+           「最近一份」历史 CSV，避免「前一天做的记录第二天加载不进去」。
+        """
         selected = st.session_state.get('selected_csv')
         if selected and os.path.isfile(selected):
             return selected
@@ -432,8 +440,35 @@ class DataMixin:
         operator = st.session_state.get('operator_name', '').strip()
         prefix = self.get_output_prefix()
         if operator:
-            return os.path.join(raw_path, "_质检记录", operator, f"{prefix}_验收记录.csv")
-        return os.path.join(raw_path, "_质检记录", f"{prefix}_验收记录.csv")
+            csv_dir = os.path.join(raw_path, "_质检记录", operator)
+        else:
+            csv_dir = os.path.join(raw_path, "_质检记录")
+        today_file = os.path.join(csv_dir, f"{prefix}_验收记录.csv")
+        if os.path.isfile(today_file):
+            return today_file
+
+        # 当天无记录文件 → 回退到最近一份同任务类型的历史 CSV
+        fallback = self._get_latest_csv_for_task(csv_dir)
+        return fallback if fallback else today_file
+
+    def _get_latest_csv_for_task(self, csv_dir):
+        """在 csv_dir 中查找与当前任务类型、操作员匹配的最近一份历史 CSV。"""
+        try:
+            task_type = st.session_state.get('task_type', '新标')
+            operator = st.session_state.get('operator_name', '').strip()
+            prefix_head = task_type
+            if operator:
+                prefix_head = f"{task_type}_{operator}_"
+            if not os.path.isdir(csv_dir):
+                return None
+            files = [f for f in os.listdir(csv_dir)
+                     if f.endswith("_验收记录.csv") and f.startswith(prefix_head)]
+            if not files:
+                return None
+            files.sort(reverse=True)  # 文件名含日期，倒序即最近优先
+            return os.path.join(csv_dir, files[0])
+        except OSError:
+            return None
 
     # ── 保存 ──
 
