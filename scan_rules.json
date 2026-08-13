@@ -1,5 +1,14 @@
 {
   "folder_digit_length": 8,
+  "folder_pattern": {
+    "blocks": [
+      {
+        "rule": "digits",
+        "count": 8,
+        "label": "样本ID"
+      }
+    ]
+  },
   "image_slots": [
     {
       "stem_suffixes": [

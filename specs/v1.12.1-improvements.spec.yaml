@@ -1,0 +1,229 @@
+# OpenSpec 版本声明，固定写1.5.0
+openapi: 1.5.0
+info:
+  title: 审视之眼 Pro v1.12.1 修复与增强规划
+  version: 1.0.0
+  description: 针对 v1.12.0 的三个问题制定修复与增强方案，待评审通过后据此生成代码
+  contact:
+    name: 质检项目组
+
+# =====================================================
+# 变更清单：三项独立任务
+#   CHG-01 ImageDock 生命周期与同步可靠性
+#   CHG-02 图片格式识别修复（png/jpg/jpeg）
+#   CHG-03 文件夹命名规则可自定义（块式匹配引擎）
+#
+# 实现状态（2026-08-14）：
+#   CHG-01 已完成 — 单进程内嵌方案 A（viewer/dock_manager.py 后台线程 + Queue 桥接）
+#   CHG-02 已完成 — 后缀扩展名校验 + 槽位 extensions 白名单 + scan_rules.json 已修复
+#   CHG-03 已完成 — 块式引擎 + 可视化块编辑器 + 实时测试（不含 cjk 块）
+# =====================================================
+changes:
+
+# ---------- CHG-01 ----------
+- id: CHG-01
+  title: ImageDock 生命周期与同步可靠性
+  type: bugfix + enhancement
+  severity: high
+
+  # 1) 问题现象
+  problem:
+    - 必须先手动启动 ImageDock，再启动主程序，悬浮窗才能显示图片
+    - 先启动主程序再启动 dock 时，dock 永远只显示"Server监听: 127.0.0.1:56789"，收不到任何图片
+    - dock 关闭后主程序没有任何入口重新打开它
+    - 主程序在 dock 未启动时静默失败（无任何提示）
+
+  # 2) 根因分析（基于源码核查）
+  root_cause:
+    - 主程序与 dock 是两个独立进程，主程序是 Socket Client，dock 是 Socket Server（viewer/image_dock.py HOST=127.0.0.1 PORT=56789）
+    - 主程序仅在"已加载数据且每次 rerun"时调用一次 sync.update_images()（app.py L213-224），且包在 try/except: pass 里，失败无感知
+    - 若 dock 在数据加载后才启动，且用户不再交互触发 rerun，则永远不会有下一次推送 → 表现为"一直监听"
+    - dock 需要手动执行 python viewer/image_dock.py 启动，未与主程序生命周期绑定（启动.bat 未包含）
+    - 无心跳、无握手/回执、无重连重推机制，连接中断后无法自愈
+
+  # 3) 方案选型
+  #   已决策：采用方案 A（单进程内嵌），方案 B 仅存档不再实施
+  solution:
+    decision: option_A
+    note: 2026-08-14 经评审确认，采用单进程内嵌方案；Socket 方案 B 存档备查。
+    option_A: in_process_viewer
+      # 主程序内创建长期存在的 GUI 管理器，由后台线程维护 PySide6 事件循环，
+      # 通过 queue.Queue + Qt 信号桥接 Streamlit；渲染与读图均在该线程，主程序不阻塞。
+      # 优点：彻底消除进程顺序依赖、端口冲突、重连问题；共享主程序解码缓存，避免重复解码。
+      # 风险：Streamlit 多进程部署模型下需用模块级单例保证 GUI 只创建一次；实现复杂度较高。
+    option_B: socket_robustness   # 已弃用（存档）
+
+  # 4) 无论选 A 或 B，均需满足的行为契约（验收标准）
+  behavior_contract:
+    - 主程序启动即自动可用，无需先启动 dock；dock 未运行时不报错、不卡顿
+    - 任意时刻（含数据加载之后）启动/重新打开 dock，当前样本图片立即同步
+    - dock 关闭后，主程序界面提供重新打开入口
+    - 翻页、提交、筛选切换、重新加载等导致当前样本变化时，dock 同步刷新
+    - dock 刷新不得阻塞主程序，切换样本几乎瞬间完成
+
+  # 5) 涉及文件（方案 A）
+  affected_files_A:
+    - viewer/image_dock.py      # 改造为被主程序后台线程托管，去掉独立 main 入口的强制进程假设
+    - viewer/image_sync_manager.py  # 由 Socket 桥接改为进程内 Queue/Qt 信号桥接（或保留兼容层）
+    - app.py                    # run() 中同步逻辑改为调用进程内同步器；增加打开/关闭悬浮窗入口
+    - settings_mixin.py         # 增加"启用悬浮窗"开关与说明
+
+  # 6) 涉及文件（方案 B）
+  affected_files_B:
+    - 启动.bat                  # 同时拉起主程序与 dock，或主程序自动探测并拉起 dock 子进程
+    - viewer/image_dock.py      # 增加心跳应答、握手协议；关闭按钮提供"退出/隐藏"区分
+    - viewer/image_sync_manager.py  # 增加心跳 ping、连接池/重连、失败日志而非静默
+    - app.py                    # 增加手动"同步到悬浮窗"按钮；失败时 toast 提示
+    - settings_mixin.py         # 悬浮窗开关 + 手动同步入口
+
+# ---------- CHG-02 ----------
+- id: CHG-02
+  title: 图片格式识别修复（png / jpg / jpeg）
+  type: bugfix
+  severity: high
+
+  # 1) 问题现象
+  problem:
+    - 用户反馈软件无法识别 png 图片
+    - 实测：扫描配置里 stem_suffixes 被写成 [".png"]、["_result.jpg"] 后，整个文件夹扫描到 0 组
+
+  # 2) 根因分析（已通过临时脚本复现验证）
+  root_cause:
+    - utils.py find_image_file() 的语义是"用不含扩展名的 stem 匹配文件名，扩展名由 IMAGE_EXTENSIONS 自动识别"
+    - IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png") 本来就已支持 png/jpg/jpeg
+    - 但 scan_rules.json 被用户（或误操作）改成了含扩展名的后缀，stem 变成 "12345678.png"，
+      与 find_image_file 拆分后的 "12345678" 永远不相等 → 匹配失败 → 0 组
+    - 设置面板 help 文案虽写了"不包含 .jpg"，但没有强校验，无法拦截错误输入
+    - 同一文件夹同时存在 12345678.png 与 12345678.jpg 时，当前逻辑按排序任意取一个，
+      用户无法按扩展名精确指定要哪个
+
+  # 3) 方案设计
+  solution:
+    - 3.1 恢复并固化后缀语义：stem_suffixes 只允许"无扩展名的纯后缀"；规则编辑器对输入做校验
+         （自动剥离扩展名并提示，或拒绝保存），杜绝再次误写扩展名
+    - 3.2 扩展名显式化：每个图片槽位新增可选字段 extensions（如 ["png","jpg"]），
+         未填写时沿用 IMAGE_EXTENSIONS 全部类型；填写后该槽位只匹配指定扩展名，
+         解决同名不同扩展名的精确选择问题
+    - 3.3 匹配优先级：同文件夹多图时按 (槽位顺序 → 扩展名过滤 → 名称排序) 确定归属
+    - 3.4 把当前被改坏的 scan_rules.json 恢复为合法默认值
+
+  # 4) 新的扫描规则数据结构（schema 扩展）
+  schema:
+    scan_rules_v2:
+      description: 升级后的扫描规则，向后兼容旧字段
+      properties:
+        folder_digit_length:    # 保留：兼容旧配置，缺省 folder_pattern 时转换为 {rule: digits, count: N}
+          type: integer
+        image_slots:            # 列表，每个槽位：
+          type: array
+          items:
+            stem_suffixes:      # 纯后缀（禁止含扩展名），空=直接匹配 {id}
+              type: array
+            extensions:         # 可选：该槽位接受的扩展名白名单，缺省用全局
+              type: array
+        text_slots:             # 保持现状
+          type: array
+
+  # 5) 验收标准
+  acceptance_criteria:
+    - 默认配置下 .png/.jpg/.jpeg（含大写 .PNG）均可被扫描识别
+    - 规则编辑器中输入 "xxx.png" 会被拦截/剥离扩展名并给出明确提示
+    - 设置 extensions 后，同名不同扩展名文件按槽位精确匹配
+    - 修复后扫描结果与"纯后缀默认规则"一致（回归验证 0 组问题消失）
+
+  # 6) 涉及文件
+  affected_files:
+    - utils.py                    # 扩展 find_image_file / 新增扩展名过滤参数
+    - disk_io.py                  # scan_files_from_disk 应用 extensions 过滤
+    - settings_mixin.py           # 规则编辑面板：校验、extensions 输入、help 文案
+    - scan_rules.json             # 恢复合法默认值
+
+# ---------- CHG-03 ----------
+- id: CHG-03
+  title: 文件夹命名规则可自定义（块式匹配引擎）
+  type: enhancement
+  severity: medium
+
+  # 1) 问题现象
+  problem:
+    - 当前仅支持"文件夹名 = 恰好 N 位纯数字"（folder_digit_length=8）
+    - 部分项目的样本文件夹名含英文/前缀/混合，如 ABC20260101、ab_20260101_01，
+      一律无法识别
+    - 规则固定写死，无 UI 可视化配置，非技术人员难以修改
+
+  # 2) 需求本质
+  requirement:
+    - 让用户用"若干段（块）"描述文件夹命名规则，每块声明类型与长度，
+      按顺序拼接后整体匹配文件夹名；类似重命名工具/文本分列的块构建器方式，
+      而非要求用户写正则表达式
+    - 借鉴成熟工具的常见做法（正则/glob/ReNamer/Bulk Rename Utility/Excel 文本分列）：
+      提供高可读性的块类型与长度控制，并支持实时测试预览
+
+  # 3) 方案设计
+  solution:
+    - 3.1 新增 folder_pattern 配置，替代 folder_digit_length（旧字段自动转换兼容）
+    - 3.2 块类型枚举（每块二选一参数：count 精确长度，或 min/max 范围长度）：
+          digits     数字 [0-9]
+          lowercase  小写字母 [a-z]
+          uppercase  大写字母 [A-Z]
+          letters    任意字母（含中英文）
+          alnum      字母或数字
+          literal    固定字符串（value 精确匹配）
+          charset    自定义字符集（chars 列表，支持排除）
+          wildcard   任意字符
+    #   注：已决策不提供 cjk 汉字块（2026-08-14 评审确认），汉字需求可用 letters/charset 覆盖
+    - 3.3 每块可选 label 语义标记（如 样本ID/批次/标注员），用于日志与后续扩展
+    - 3.4 规则面板 UI：块列表可视化增删/排序/类型下拉/长度输入/实时"测试匹配"预览
+         （输入一个示例文件夹名，即时显示是否匹配）
+    - 3.5 匹配引擎：拼接块正则 → 编译缓存 → 用于扫描；匹配结果整体作为 group.id
+
+  # 4) 新的扫描规则数据结构（schema 扩展）
+  schema:
+    folder_pattern:
+      description: 文件夹名匹配规则 = 顺序拼接的块列表
+      type: object
+      properties:
+        blocks:
+          type: array
+          items:
+            rule:                 # 块类型（见枚举）
+              type: string
+            count:                # 精确长度（与 min/max 二选一）
+              type: integer
+            min:                  # 最小长度
+              type: integer
+            max:                  # 最大长度
+              type: integer
+            value:                # 仅 literal 使用：固定字符串
+              type: string
+            chars:                # 仅 charset 使用：字符集（^前缀=排除）
+              type: string
+            label:                # 可选语义标记
+              type: string
+      example:
+        # 默认（等价于旧 folder_digit_length=8）
+        - { rule: digits, count: 8, label: 样本ID }
+        # 大写前缀 + 数字：ABC20260101
+        - { rule: uppercase, count: 3, label: 前缀 }
+        - { rule: digits, count: 8, label: 样本ID }
+        # 字母数字混合 + 下划线：ab20260101_01
+        - { rule: lowercase, min: 1, max: 3 }
+        - { rule: digits, count: 8, label: 样本ID }
+        - { rule: literal, value: "_", label: 分隔符 }
+        - { rule: digits, count: 2 }
+
+  # 5) 验收标准
+  acceptance_criteria:
+    - 默认配置行为与旧版 folder_digit_length=8 完全一致（回归）
+    - 能识别含英文/前缀/自定义字符集的文件夹名
+    - 面板可视化编辑块规则并即时测试匹配，无需手写正则
+    - 保存后重新"加载文件夹"即生效
+    - 输入非法块类型/冲突参数时给出明确错误提示
+
+  # 6) 涉及文件
+  affected_files:
+    - utils.py                    # 新增块式模式编译/匹配工具（build_pattern / match_folder）
+    - disk_io.py                  # scan_files_from_disk 改用 folder_pattern 匹配
+    - settings_mixin.py           # 规则面板重构：块编辑器 + 实时测试
+    - scan_rules.json             # 迁移到新格式
+    - data_mixin.py               # 若涉及 extract_user_name 的位数参数传递需联动

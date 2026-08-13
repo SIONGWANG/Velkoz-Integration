@@ -3,3 +3,5 @@ pandas
 Pillow
 XlsxWriter
 streamlit-paste-button
+PySide6-Essentials
+# PySide6 提供图片悬浮窗（ImageDock），缺失时悬浮窗禁用，不影响主程序

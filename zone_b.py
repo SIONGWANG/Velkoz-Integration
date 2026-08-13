@@ -5,7 +5,7 @@ import os
 import re
 import json
 
-from utils import BASE_DIR, read_txt
+from utils import APP_VERSION, BASE_DIR, read_txt
 from disk_io import get_display_image_bytes
 from easter_eggs import on_batch_complete
 
@@ -15,7 +15,7 @@ class ZoneBMixin:
 
     def render_cold_start_animation(self):
         """极简现代风载入动画：呼吸之眼 + 脉冲环 + 淡入标题"""
-        version = os.path.basename(BASE_DIR)
+        version = APP_VERSION
         is_scanning = st.session_state.get('is_scanning', False)
         anim_html = f"""
         <style>

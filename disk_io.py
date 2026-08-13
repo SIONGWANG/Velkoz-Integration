@@ -14,6 +14,8 @@ from utils import (
     PRELOAD_AHEAD, DISPLAY_JPEG_QUALITY,
     find_image_file, _load_and_rotate, resize_image_for_display,
     extract_user_name, DEFAULT_SCAN_RULES, EVIDENCE_FOLDER_NAME,
+    normalize_folder_pattern, build_folder_pattern_regex,
+    get_pattern_digit_length,
 )
 
 
@@ -29,9 +31,13 @@ def scan_files_from_disk(path, cache_buster=0, rules_json=None):
         return []
 
     rules = json.loads(rules_json) if rules_json else DEFAULT_SCAN_RULES
-    digit_len = rules.get("folder_digit_length", 8)
     image_slots = rules.get("image_slots", DEFAULT_SCAN_RULES["image_slots"])
     text_slots = rules.get("text_slots", DEFAULT_SCAN_RULES["text_slots"])
+
+    # 文件夹命名规则：块式 folder_pattern（兼容旧 folder_digit_length）
+    folder_pattern, pattern_err = normalize_folder_pattern(rules)
+    folder_regex, _regex_err = build_folder_pattern_regex(folder_pattern)
+    pattern_digit_len = get_pattern_digit_length(folder_pattern) if folder_regex else None
 
     batch_pattern = re.compile(r'^batch_(\d{8})_(\d{3})_(.+)$')
     current_batch = None
@@ -65,16 +71,17 @@ def scan_files_from_disk(path, cache_buster=0, rules_json=None):
                     pass
             continue
 
-        if not folder_name.isdigit() or len(folder_name) != digit_len:
+        if folder_regex is None or not folder_regex.fullmatch(folder_name):
             continue
 
-        # 图片匹配：每个 slot 按 suffix 顺序尝试匹配
+        # 图片匹配：每个 slot 按 suffix 顺序尝试匹配（支持扩展名白名单过滤）
         image_results = []
         for slot in image_slots:
             found = None
+            slot_exts = slot.get("extensions") or None
             for suffix in slot.get("stem_suffixes", [""]):
                 stem = f"{folder_name}{suffix}"
-                found = find_image_file(files, stem)
+                found = find_image_file(files, stem, extensions=slot_exts)
                 if found:
                     break
             image_results.append(found)
@@ -104,7 +111,7 @@ def scan_files_from_disk(path, cache_buster=0, rules_json=None):
         try:
             rel_path = os.path.relpath(root, path)
             path_parts = rel_path.split(os.sep)
-            user_name = extract_user_name(path_parts, digit_length=digit_len)
+            user_name = extract_user_name(path_parts, digit_length=pattern_digit_len)
         except Exception:
             user_name = "未知"
 

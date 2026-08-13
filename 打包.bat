@@ -4,11 +4,11 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 :: ============================================================
-::  开发者工具 — 一键打包 Vel'Koz V1.4.0
-::  生成 Vel'Koz_V1.4.0.zip 发布包
+::  开发者工具 — 一键打包 Vel'Koz V1.12.1
+::  生成 Vel'Koz_V1.12.1.zip 发布包
 :: ============================================================
 
-set "VERSION=1.4.0"
+set "VERSION=1.12.1"
 set "OUTPUT_NAME=Vel'Koz_V%VERSION%"
 set "STAGE_DIR=_package_staging"
 
@@ -42,6 +42,9 @@ copy /y "disk_io.py" "%TARGET%\" >nul
 copy /y "utils.py" "%TARGET%\" >nul
 copy /y "export_utils.py" "%TARGET%\" >nul
 copy /y "easter_eggs.py" "%TARGET%\" >nul
+
+:: viewer 包（ImageDock 悬浮窗，进程内托管）
+xcopy /y /e /i "viewer" "%TARGET%\viewer" >nul
 
 :: 配置文件
 copy /y "categories_config.json" "%TARGET%\" >nul

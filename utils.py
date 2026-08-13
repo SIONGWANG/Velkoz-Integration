@@ -17,6 +17,9 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # === ⚙️ 常量 ===
+APP_NAME = "审视之眼pro"
+APP_VERSION = "1.12.1"
+
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 PRELOAD_AHEAD = 5
 MAX_DISPLAY_PX = 1920
@@ -29,6 +32,11 @@ SCAN_RULES_FILENAME = "scan_rules.json"
 
 DEFAULT_SCAN_RULES = {
     "folder_digit_length": 8,
+    "folder_pattern": {
+        "blocks": [
+            {"rule": "digits", "count": 8, "label": "样本ID"}
+        ]
+    },
     "image_slots": [
         {"stem_suffixes": [""]},
         {"stem_suffixes": ["_result"]}
@@ -48,7 +56,7 @@ def load_scan_rules():
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            if "folder_digit_length" in config and "image_slots" in config and "text_slots" in config:
+            if ("folder_digit_length" in config or "folder_pattern" in config) and "image_slots" in config and "text_slots" in config:
                 return config
         except Exception:
             logging.warning("扫描规则配置损坏，回退默认: %s", config_path)
@@ -65,6 +73,147 @@ def save_scan_rules(rules):
     except Exception:
         return False
 
+
+# === 🧱 文件夹块式命名规则引擎 ===
+# 块类型 → 正则片段（一字符一个字符类）
+FOLDER_BLOCK_RULES = {
+    "digits": r"[0-9]",            # 数字
+    "lowercase": r"[a-z]",         # 小写字母
+    "uppercase": r"[A-Z]",         # 大写字母
+    "letters": r"[^\W\d_]",        # 任意字母（含中英文）
+    "alnum": r"[0-9A-Za-z]",       # 字母或数字
+    "wildcard": r".",              # 任意字符
+}
+
+
+def _block_to_regex(block):
+    """单个块 → (regex片段, error)。literal/charset 特殊，其余查表。"""
+    rule = block.get("rule")
+    if rule == "literal":
+        value = block.get("value", "")
+        if not isinstance(value, str):
+            return None, "literal 块的 value 必须是字符串"
+        if not value:
+            return None, "literal 块的 value 不能为空"
+        return re.escape(value), None
+    if rule == "charset":
+        chars = block.get("chars", "")
+        if not isinstance(chars, str) or not chars:
+            return None, "charset 块的 chars 不能为空"
+        exclude = chars.startswith("^")
+        body = chars[1:] if exclude else chars
+        if not body:
+            return None, "charset 块的字符集不能为空"
+        if exclude:
+            return r"[^" + re.escape(body) + r"]", None
+        return r"[" + re.escape(body) + r"]", None
+    if rule in FOLDER_BLOCK_RULES:
+        return FOLDER_BLOCK_RULES[rule], None
+    return None, f"未知块类型: {rule}"
+
+
+def _block_quantifier(block):
+    """计数部分 → (quantifier字符串, error)。count 优先，否则 min/max。"""
+    count = block.get("count")
+    lo = block.get("min")
+    hi = block.get("max")
+    if count is not None:
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            return None, "count 必须是整数"
+        if count < 1:
+            return None, "count 必须 ≥ 1"
+        return "{" + str(count) + "}", None
+    # 范围长度
+    has_range = lo is not None or hi is not None
+    if not has_range:
+        return None, "块必须指定 count 或 min/max 长度"
+    try:
+        lo = int(lo) if lo is not None else 0
+        hi = int(hi) if hi is not None else lo
+    except (TypeError, ValueError):
+        return None, "min/max 必须是整数"
+    if hi < lo:
+        return None, "max 不能小于 min"
+    if hi < 1:
+        return None, "长度必须 ≥ 1"
+    if lo == hi:
+        return "{" + str(lo) + "}", None
+    return "{" + f"{lo},{hi}" + "}", None
+
+
+def build_folder_pattern_regex(folder_pattern):
+    """把块列表编译为完整匹配正则。返回 (regex, error)。"""
+    if not folder_pattern:
+        return None, "未配置 folder_pattern"
+    blocks = folder_pattern.get("blocks")
+    if not isinstance(blocks, list) or not blocks:
+        return None, "folder_pattern.blocks 不能为空"
+    parts = []
+    for i, block in enumerate(blocks):
+        frag, err = _block_to_regex(block)
+        if err:
+            return None, f"第 {i+1} 块配置错误：{err}"
+        if block.get("rule") == "literal":
+            parts.append(frag)
+            continue
+        quant, qerr = _block_quantifier(block)
+        if qerr:
+            return None, f"第 {i+1} 块配置错误：{qerr}"
+        parts.append(frag + quant)
+    pattern = "^" + "".join(parts) + "$"
+    try:
+        return re.compile(pattern), None
+    except re.error as e:
+        return None, f"正则编译失败: {e}"
+
+
+def folder_pattern_from_digit_length(digit_len):
+    """旧字段 folder_digit_length → folder_pattern（向后兼容）"""
+    return {"blocks": [{"rule": "digits", "count": int(digit_len), "label": "样本ID"}]}
+
+
+def normalize_folder_pattern(rules):
+    """规则归一化：缺省 fold_pattern 时由 folder_digit_length 转换；返回 (folder_pattern, error)。"""
+    fp = rules.get("folder_pattern")
+    if fp and fp.get("blocks"):
+        return fp, None
+    digit_len = rules.get("folder_digit_length", 8)
+    fp = folder_pattern_from_digit_length(digit_len)
+    regex, err = build_folder_pattern_regex(fp)
+    return fp, err
+
+
+def match_folder_name(folder_pattern, folder_name):
+    """文件夹名是否匹配（整体匹配）。出错时返回 False。"""
+    regex, err = build_folder_pattern_regex(folder_pattern)
+    if err or regex is None:
+        return False
+    return bool(regex.fullmatch(folder_name))
+
+
+def get_pattern_digit_length(folder_pattern):
+    """从块中推断"可作为数字ID跳过的总位数"（供姓名提取用），
+    仅当全部块都是 digits 且长度固定时可用，否则返回 None（不跳过纯数字段）。"""
+    blocks = folder_pattern.get("blocks") if folder_pattern else None
+    if not blocks:
+        return None
+    total = 0
+    for b in blocks:
+        if b.get("rule") != "digits":
+            return None
+        count = b.get("count")
+        if count is None:
+            lo, hi = b.get("min"), b.get("max")
+            if lo is None and hi is not None:
+                return None
+            if hi is None and lo is not None:
+                return None
+            return None
+        total += int(count)
+    return total
+
 DEFAULT_CATEGORIES = {
     "L1": ["空间编辑", "人物/物体一致性"],
     "L2": {
@@ -79,13 +228,42 @@ def is_supported_image(filename):
     return filename.lower().endswith(IMAGE_EXTENSIONS)
 
 
-def find_image_file(files, stem):
-    """按 stem 匹配图片文件（大小写不敏感）"""
+def find_image_file(files, stem, extensions=None):
+    """按 stem 匹配图片文件（大小写不敏感）。
+    extensions: 可选扩展名白名单（可带或不带点，如 ["png","jpg"] / [".png"]），
+    缺省时沿用 IMAGE_EXTENSIONS 全部类型。"""
+    if extensions:
+        valid_exts = tuple(e.lower() if e.lower().startswith('.') else f'.{e.lower()}' for e in extensions)
+    else:
+        valid_exts = IMAGE_EXTENSIONS
     for file_name in sorted(files):
         name, ext = os.path.splitext(file_name)
-        if name.lower() == stem.lower() and ext.lower() in IMAGE_EXTENSIONS:
+        if name.lower() == stem.lower() and ext.lower() in valid_exts:
             return file_name
     return None
+
+
+def clean_suffix(stem):
+    """剥离误写入的扩展名，返回 (纯后缀, 被剥离的扩展名)。
+    例如 "_result.jpg" -> ("_result", ".jpg")；无扩展名时第二项为空串。"""
+    lower = stem.lower()
+    for ext in IMAGE_EXTENSIONS:
+        if lower.endswith(ext):
+            return stem[: -len(ext)], ext
+    return stem, ""
+
+
+def clean_suffix_list(suffixes):
+    """批量清洗后缀列表，返回 (清洗后列表, 是否发生过扩展名剥离)。"""
+    cleaned = []
+    stripped_any = False
+    for s in suffixes:
+        cs, ext = clean_suffix(s)
+        if ext:
+            stripped_any = True
+        if cs:
+            cleaned.append(cs)
+    return cleaned, stripped_any
 
 
 @lru_cache(maxsize=100)

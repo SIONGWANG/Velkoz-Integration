@@ -79,7 +79,7 @@ class ImageDock(QMainWindow):
     HOST = '127.0.0.1'
     PORT = 56789
 
-    def __init__(self):
+    def __init__(self, server_mode=True):
         super().__init__()
         self.setWindowTitle("图片工作台")
         self.setMinimumSize(300, 400)
@@ -101,7 +101,15 @@ class ImageDock(QMainWindow):
 
         self._setup_ui()
         self._load_settings()
-        self._start_server()
+        if server_mode:
+            self._start_server()
+
+    def update_images_inline(self, sample_id, current_index, total, images):
+        """进程内直连更新（主程序后台线程托管时使用，无需 Socket）"""
+        if images is None:
+            images = []
+        self.signals.log_message.emit(f"已同步: {sample_id} ({current_index}/{total})")
+        self.signals.load_images.emit(list(images))
 
     def _setup_ui(self):
         central = QWidget()

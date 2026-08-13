@@ -5,7 +5,7 @@ import pandas as pd
 import logging
 
 from utils import (
-    BASE_DIR, DEFAULT_CATEGORIES,
+    APP_NAME, APP_VERSION, BASE_DIR, DEFAULT_CATEGORIES,
     load_categories_config,
     load_scan_rules,
 )
@@ -92,8 +92,8 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if 'selected_tags' not in st.session_state: st.session_state.selected_tags = {}
 
     def run(self):
-        version = os.path.basename(BASE_DIR)
-        st.set_page_config(layout="wide", page_title=f"审视之眼pro V{version}")
+        version = APP_VERSION
+        st.set_page_config(layout="wide", page_title=f"{APP_NAME} V{version}")
         
         st.markdown(MAIN_CSS + STATUS_BUTTON_JS, unsafe_allow_html=True)
 
@@ -208,7 +208,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             group = current_group
             self.sync_state_from_history(group['id'])
 
-            # 同步图片到ImageDock（发送文件夹所有图片）
+            # 同步图片到ImageDock（发送文件夹所有图片；进程内，失败静默降级）
             try:
                 sync = get_sync_manager()
                 img_groups = st.session_state.data_groups
@@ -216,9 +216,19 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 curr_idx = all_ids.index(group['id']) if group['id'] in all_ids else 0
                 # 获取文件夹中所有图片
                 root = group.get('root', '')
-                all_images = [os.path.join(root, f) for f in os.listdir(root)
-                             if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))
-                             and os.path.isfile(os.path.join(root, f))]
+                all_images = []
+                try:
+                    all_images = [os.path.join(root, f) for f in os.listdir(root)
+                                 if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))
+                                 and os.path.isfile(os.path.join(root, f))]
+                except Exception:
+                    pass
+                st.session_state._dock_sample = {
+                    "sample_id": group['id'],
+                    "current_index": curr_idx + 1,
+                    "total": len(all_ids),
+                    "images": all_images,
+                }
                 sync.update_images(group['id'], curr_idx + 1, len(all_ids), all_images)
             except Exception:
                 pass
