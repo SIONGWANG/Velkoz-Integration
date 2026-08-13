@@ -495,6 +495,59 @@ class SettingsMixin:
         """剔除路径非法字符"""
         return re.sub(r'[\\/:*?"<>|]', '', name)
 
+    @staticmethod
+    def _describe_block(block, rule_opts):
+        """把单个块翻译为人话描述，用于卡片标题与规则预览。"""
+        rule = block.get("rule", "digits")
+        if rule == "literal":
+            return f"固定字符「{block.get('value') or ''}」"
+        base = rule_opts.get(rule, rule)
+        if "min" in block or "max" in block:
+            lo, hi = block.get("min"), block.get("max")
+            if lo is not None and hi is not None:
+                q = f"{lo} 位" if lo == hi else f"{lo}-{hi} 位"
+            elif lo is not None:
+                q = f"至少 {lo} 位"
+            else:
+                q = f"最多 {hi} 位"
+        else:
+            q = f"{int(block.get('count') or 1)} 位"
+        return f"{base} {q}"
+
+    @staticmethod
+    def _generate_block_sample(block):
+        """为单个块生成一个合法示例片段（供"填入有效示例"使用）。"""
+        rule = block.get("rule", "digits")
+        n = int(block.get("count") or 1)
+        if "min" in block or "max" in block:
+            lo = block.get("min")
+            if lo is None:
+                lo = block.get("max")
+            n = int(lo or 1)
+        if rule == "digits":
+            return "".join(str((i + 2) % 10) for i in range(n))
+        if rule == "lowercase":
+            return "abcdefghijklmnopqrstuvwxyz"[:n]
+        if rule == "uppercase":
+            return "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:n]
+        if rule == "letters":
+            return "张" + "试" * (n - 1)
+        if rule == "alnum":
+            return "a1b2c3d4e5f6g7h8i9j0"[:n]
+        if rule == "wildcard":
+            return "x" * n
+        if rule == "literal":
+            return block.get("value", "")
+        if rule == "charset":
+            chars = block.get("chars", "")
+            body = chars[1:] if chars.startswith("^") else chars
+            if not body:
+                return "a"
+            if chars.startswith("^"):
+                return "a" * n
+            return "".join((body[0] * n))
+        return "a" * n
+
     def _render_block_length_inputs(self, block, i):
         """字符类块的长度输入：count（精确）或 min/max（范围），依据块数据自动判断。"""
         if "min" in block or "max" in block:
@@ -515,7 +568,7 @@ class SettingsMixin:
             block.pop("max", None)
 
     def _render_folder_blocks_editor(self, blocks):
-        """块编辑器：可视化增删/排序/类型/长度 + 实时测试匹配。
+        """块编辑器：卡片式增删/排序/类型/长度 + 规则预览 + 实时测试匹配。
         blocks: 工作副本中的块列表（直接就地修改）。"""
         rule_opts = {
             "digits": "数字 0-9",
@@ -530,75 +583,114 @@ class SettingsMixin:
         rule_labels = ["digits", "lowercase", "uppercase", "letters", "alnum",
                        "literal", "charset", "wildcard"]
 
+        # 顶部规则预览：人类化描述 + 正则表达式
+        preview_regex, preview_err = build_folder_pattern_regex({"blocks": blocks})
+        if preview_err:
+            st.warning(f"⚠️ 当前规则不完整：{preview_err}")
+        else:
+            desc = " + ".join(self._describe_block(b, rule_opts) for b in blocks)
+            st.caption(f"📐 当前规则：{desc}")
+            st.caption(f"🔍 正则：{preview_regex.pattern}")
+
         for i in range(len(blocks)):
             block = blocks[i]
-            cols = st.columns([2.2, 1.6, 3.0, 1.2])
-            with cols[0]:
-                cur_rule = block.get("rule", "digits")
-                idx = rule_labels.index(cur_rule) if cur_rule in rule_labels else 0
-                new_rule = st.selectbox(f"类型 {i+1}", rule_labels,
-                                        index=idx, key=f"_sr_blk_rule_{i}",
-                                        format_func=lambda r: rule_opts.get(r, r),
-                                        label_visibility="collapsed")
-                block["rule"] = new_rule
-            with cols[1]:
+            with st.container(border=True):
+                # 类型 + 块描述
+                tcol1, tcol2 = st.columns([1.3, 3.0])
+                with tcol1:
+                    cur_rule = block.get("rule", "digits")
+                    idx = rule_labels.index(cur_rule) if cur_rule in rule_labels else 0
+                    new_rule = st.selectbox(f"块 {i+1} 类型", rule_labels,
+                                            index=idx, key=f"_sr_blk_rule_{i}",
+                                            format_func=lambda r, ro=rule_opts: ro.get(r, r),
+                                            label_visibility="collapsed")
+                    # 类型变更时清空该块的内容/长度 key，避免旧值残留导致测试误判
+                    if new_rule != cur_rule:
+                        block["rule"] = new_rule
+                        block.pop("value", None)
+                        block.pop("chars", None)
+                        for k in (f"_sr_blk_val_{i}", f"_sr_blk_chars_{i}",
+                                  f"_sr_blk_cnt_{i}", f"_sr_blk_min_{i}", f"_sr_blk_max_{i}"):
+                            st.session_state.pop(k, None)
+                        st.rerun()
+                with tcol2:
+                    st.markdown(self._describe_block(block, rule_opts)
+                                if new_rule == cur_rule
+                                else rule_opts.get(new_rule, new_rule))
+                    st.caption(rule_opts.get(new_rule, new_rule))
+
+                # 内容/长度输入（随类型变化）
                 if new_rule == "literal":
-                    block["value"] = st.text_input(f"值 {i+1}", value=block.get("value", ""),
+                    block["value"] = st.text_input("固定字符串（原样匹配）",
+                                                   value=block.get("value", ""),
                                                    key=f"_sr_blk_val_{i}",
-                                                   label_visibility="collapsed",
-                                                   help="固定字符串，原样匹配")
+                                                   placeholder="例如 ABC / 样本 / F-01",
+                                                   help="这一整段文字会原样出现在文件夹名中")
                 elif new_rule == "charset":
-                    block["chars"] = st.text_input(f"字符集 {i+1}", value=block.get("chars", ""),
-                                                   key=f"_sr_blk_chars_{i}",
-                                                   label_visibility="collapsed",
-                                                   help="如 abc 或 ^abc（^ 开头=排除这些字符）")
-                    self._render_block_length_inputs(block, i)
+                    cc2 = st.columns([2, 1])
+                    with cc2[0]:
+                        block["chars"] = st.text_input("字符集（可输入一组允许字符）",
+                                                       value=block.get("chars", ""),
+                                                       key=f"_sr_blk_chars_{i}",
+                                                       placeholder="例如 0123456789 或 ^0x（^ 开头=排除）",
+                                                       help="^ 开头表示排除这些字符，长度仍需填写")
+                    with cc2[1]:
+                        self._render_block_length_inputs(block, i)
                 else:
                     self._render_block_length_inputs(block, i)
-            with cols[2]:
-                block["label"] = st.text_input(f"标记 {i+1}",
-                                               value=block.get("label", ""),
-                                               key=f"_sr_blk_label_{i}",
-                                               label_visibility="collapsed",
-                                               placeholder="标记（可选，如 样本ID）")
-            with cols[3]:
-                st.write("")
-                btn_cols = st.columns(3)
-                with btn_cols[0]:
+
+                # 标记 + 操作按钮
+                act = st.columns([3.4, 1, 1, 1])
+                with act[0]:
+                    block["label"] = st.text_input("标记（可选）",
+                                                   value=block.get("label", ""),
+                                                   key=f"_sr_blk_label_{i}",
+                                                   placeholder="如 样本ID",
+                                                   label_visibility="collapsed")
+                with act[1]:
                     if i > 0 and st.button("↑", key=f"_sr_blk_up_{i}", help="上移"):
                         blocks[i-1], blocks[i] = blocks[i], blocks[i-1]
                         self._clear_sr_widget_keys()
                         st.rerun()
-                with btn_cols[1]:
+                with act[2]:
                     if i < len(blocks)-1 and st.button("↓", key=f"_sr_blk_dn_{i}", help="下移"):
                         blocks[i+1], blocks[i] = blocks[i], blocks[i+1]
                         self._clear_sr_widget_keys()
                         st.rerun()
-                with btn_cols[2]:
+                with act[3]:
                     if len(blocks) > 1 and st.button("✕", key=f"_sr_blk_del_{i}", help="删除"):
                         blocks.pop(i)
                         self._clear_sr_widget_keys()
                         st.rerun()
 
-        cc = st.columns([1, 4])
+        # 添加块 + 生成有效示例
+        cc = st.columns([1, 2])
         with cc[0]:
             if st.button("+ 添加块", key="_sr_blk_add"):
                 blocks.append({"rule": "digits", "count": 1})
                 self._clear_sr_widget_keys()
                 st.rerun()
         with cc[1]:
-            # 实时测试
-            regex, err = build_folder_pattern_regex({"blocks": blocks})
-            test_name = st.text_input("测试文件夹名", key="_sr_blk_test",
-                                      placeholder="输入示例文件夹名，即时判断是否匹配",
-                                      label_visibility="collapsed")
-            if err:
-                st.error(f"⚠️ 规则无效：{err}")
-            elif test_name.strip():
-                if regex.fullmatch(test_name.strip()):
-                    st.success(f"✅ 匹配：「{test_name.strip()}」符合当前规则")
-                else:
-                    st.error(f"❌ 不匹配：「{test_name.strip()}」不符合当前规则")
+            if st.button("🎲 自动填入有效示例", key="_sr_blk_gen",
+                         help="按当前规则自动生成一串文件夹名填入测试框，便于验证"):
+                sample = "".join(self._generate_block_sample(b) for b in blocks)
+                st.session_state["_sr_blk_test"] = sample
+                st.rerun()
+
+        # 实时测试
+        regex, err = build_folder_pattern_regex({"blocks": blocks})
+        test_name = st.text_input("🧪 测试文件夹名",
+                                  key="_sr_blk_test",
+                                  placeholder="输入示例文件夹名，即时判断是否匹配",
+                                  help="输入后立刻显示是否匹配当前规则；可点击上方「自动填入有效示例」")
+        if err:
+            st.error(f"⚠️ 规则无效：{err}")
+        elif test_name.strip():
+            if regex.fullmatch(test_name.strip()):
+                st.success(f"✅ 匹配：「{test_name.strip()}」符合当前规则")
+            else:
+                st.error(f"❌ 不匹配：「{test_name.strip()}」不符合当前规则")
+                st.caption(f"当前规则正则为 {regex.pattern}，可参考上方卡片描述检查长度/字符类型")
 
     def _render_scan_rules_panel(self):
         """自定义读取规则面板：文件夹位数、图片槽位、文本槽位"""
