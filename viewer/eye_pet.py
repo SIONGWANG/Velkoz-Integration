@@ -37,9 +37,14 @@ class EyePet(QWidget):
         self.setFixedSize(*self.SIZE)
 
         self._on_click = on_click or (lambda: None)
-        self._blink_state = 0.0        # 0=全开, 1=全闭
-        self._blinking = False
-        self._next_blink = time.time() + random.uniform(2.2, 4.5)
+        # 眼睛状态机：open=睁眼(常态) / blink=快速一眨 / sleep=长时间闭眼
+        # openness: 0=全闭, 1=全开
+        self._state = "open"
+        self._openness = 1.0
+        self._blink_ts = 0.0            # 本次眨眼开始时间
+        self._sleep_until = 0.0         # 本次闭眼结束时间
+        self._next_blink = time.time() + random.uniform(4.0, 7.5)
+        self._next_sleep = time.time() + random.uniform(12.0, 20.0)
         self._look_t = random.uniform(0, math.tau)
         self._look_dx = 0.0
         self._look_dy = 0.0
@@ -49,6 +54,7 @@ class EyePet(QWidget):
         self._mouse_inside = False
         self._dragging = False
         self._drag_offset = QPointF()
+        self._press_pos = None         # 用于区分点击 vs 拖动
         self._hover_start = 0.0
 
         self._anim = QTimer(self)
@@ -60,29 +66,54 @@ class EyePet(QWidget):
 
     def _tick(self):
         now = time.time()
-        # 眨眼调度
-        if not self._blinking and now >= self._next_blink:
-            self._blinking = True
-            self._blink_state = 0.0
-        if self._blinking:
-            self._blink_state += 0.30
-            if self._blink_state >= 1.0:
-                self._blink_state = 1.0
-                self._blinking = False
-                self._next_blink = now + random.uniform(2.0, 5.5)
-        # 视线目标缓慢变化（视线漂移）
-        if random.random() < 0.05:
-            self._target_dx = random.uniform(-7, 7)
-            self._target_dy = random.uniform(-4, 4)
-        # 跟随鼠标
-        if self._mouse_inside:
-            pos = self.mapFromGlobal(self.cursor().pos())
-            cx, cy = self.width() / 2, self.height() / 2
-            self._target_dx = max(-8, min(8, (pos.x() - cx) * 0.18))
-            self._target_dy = max(-5, min(5, (pos.y() - cy) * 0.14))
-        # 平滑逼近目标
-        self._look_dx += (self._target_dx - self._look_dx) * 0.12
-        self._look_dy += (self._target_dy - self._look_dy) * 0.12
+        # ── 眼睛状态机 ──
+        if self._state == "open":
+            self._openness = 1.0
+            if now >= self._next_sleep:
+                # 进入长时间闭眼（睡觉），立即闭拢
+                self._state = "sleep"
+                self._sleep_until = now + 3.0
+                self._openness = 0.0
+            elif now >= self._next_blink:
+                # 进入快速眨眼
+                self._state = "blink"
+                self._blink_ts = now
+
+        elif self._state == "blink":
+            elapsed = now - self._blink_ts
+            # 快速一眨：~0.27s 闭拢 -> 0.27s 张开
+            if elapsed <= 0.27:
+                self._openness = max(0.0, 1.0 - elapsed / 0.27)
+            elif elapsed <= 0.54:
+                self._openness = min(1.0, (elapsed - 0.27) / 0.27)
+            else:
+                self._state = "open"
+                self._openness = 1.0
+                self._next_blink = now + random.uniform(4.0, 7.5)
+
+        elif self._state == "sleep":
+            self._openness = 0.0
+            if now >= self._sleep_until:
+                self._state = "open"
+                self._openness = 1.0
+                self._next_sleep = now + random.uniform(12.0, 20.0)
+                # 睡醒后重新计时眨眼
+                self._next_blink = now + random.uniform(2.0, 4.0)
+
+        # ── 视线漂移（睡觉时不动）──
+        if self._state != "sleep":
+            if random.random() < 0.05:
+                self._target_dx = random.uniform(-7, 7)
+                self._target_dy = random.uniform(-4, 4)
+            # 跟随鼠标
+            if self._mouse_inside:
+                pos = self.mapFromGlobal(self.cursor().pos())
+                cx, cy = self.width() / 2, self.height() / 2
+                self._target_dx = max(-8, min(8, (pos.x() - cx) * 0.18))
+                self._target_dy = max(-5, min(5, (pos.y() - cy) * 0.14))
+            self._look_dx += (self._target_dx - self._look_dx) * 0.12
+            self._look_dy += (self._target_dy - self._look_dy) * 0.12
+
         # 兴奋衰减
         self._excited = max(0.0, self._excited - 0.03)
         self.update()
@@ -101,6 +132,7 @@ class EyePet(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._dragging = True
+            self._press_pos = event.pos()
             self._drag_offset = event.globalPosition() - QPointF(self.x(), self.y())
         super().mousePressEvent(event)
 
@@ -110,14 +142,17 @@ class EyePet(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        moved = False
-        if self._dragging:
+        if event.button() == Qt.LeftButton and self._dragging:
             self._dragging = False
-            moved = True
-        if event.button() == Qt.LeftButton and moved:
-            # 判定为点击（不是拖动）→ 触发兴奋动画 + 恢复
-            self._excited = 1.0
-            QTimer.singleShot(220, self._on_click)
+            # 区分「点击」与「拖动」：移动距离小且未明显拖动 → 判定为点击
+            is_click = self._press_pos is not None and (
+                (event.pos() - self._press_pos).manhattanLength() < 8
+            )
+            self._press_pos = None
+            # 仅「睁眼」状态点击才恢复悬浮窗；闭眼/眨眼瞬间不响应打开，但仍可拖动
+            if is_click and self._state == "open":
+                self._excited = 1.0
+                QTimer.singleShot(220, self._on_click)
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
@@ -139,9 +174,8 @@ class EyePet(QWidget):
         w, h = self.width(), self.height()
         cx, cy = w / 2, h / 2 + 6
 
-        # 眨眼开合程度（0=全开,1=全闭），配合宽度做舒展
-        openness = 1.0 - self._blink_state
-        openness = max(0.02, min(1.0, openness + self._excited * 0.08))
+        # 眼睛实际开合程度（0=全闭,1=全开），兴奋时略舒展
+        openness = max(0.02, min(1.0, self._openness + self._excited * 0.08))
 
         # 腮红
         self._draw_blush(p, cx - 34, cy + 16, 0.9)
@@ -168,7 +202,30 @@ class EyePet(QWidget):
         openness_soft = max(0.02, openness)
         self._draw_lid(p, cx, cy, 46, 40 * openness_soft)
 
+        # 闭眼（睡觉）时显示漂浮的 Zz 睡意符号
+        if self._state == "sleep":
+            self._draw_sleep_zzz(p, cx, cy)
+
         p.end()
+
+    def _draw_sleep_zzz(self, p, cx, cy):
+        """睡觉时在眼旁绘制轻轻浮动的 Z z。"""
+        phase = (time.time() % 2.4)
+        from PySide6.QtGui import QFont
+        p.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        p.setPen(QPen(QColor(120, 100, 200), 1))
+        # 两个 Z 依次浮现并上浮
+        frags = [(0.0, "z", 10), (1.2, "Z", 14)]
+        for base, ch, size in frags:
+            t = (phase - base) % 2.4
+            alpha = max(0, min(1, 1 - t / 1.9))
+            if alpha <= 0:
+                continue
+            p.setFont(QFont("Segoe UI", size, QFont.Bold))
+            col = QColor(96, 76, 204, int(220 * alpha))
+            p.setPen(QPen(col, 1))
+            y = cy - 34 - int(t * 16)
+            p.drawText(int(cx + 34), y, ch)
 
     def _eye_path(self, cx, cy, rw, rh):
         """杏眼轮廓：左右尖、上下圆。"""
