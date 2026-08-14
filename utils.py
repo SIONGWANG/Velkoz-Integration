@@ -18,7 +18,7 @@ else:
 
 # === ⚙️ 常量 ===
 APP_NAME = "审视之眼pro"
-APP_VERSION = "1.13.0"
+APP_VERSION = "1.13.1"
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 PRELOAD_AHEAD = 5

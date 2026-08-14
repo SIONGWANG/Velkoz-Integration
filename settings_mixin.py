@@ -68,7 +68,8 @@ class SettingsMixin:
                 logging.warning("设置文件加载失败: %s - %s", settings_file, str(e))
                 st.session_state['_settings_load_error'] = str(e)
         return {"layout_width": 80, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
-                "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标"}
+                "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标",
+                "textarea_mode": "auto", "textarea_height": 68}
 
     def _save_settings(self):
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")
@@ -83,6 +84,9 @@ class SettingsMixin:
                 "operator_name": st.session_state.get('operator_name', ""),
                 "task_type": st.session_state.get('task_type', "新标"),
                 "enable_hotkeys": st.session_state.get('enable_hotkeys', True),
+                "textarea_mode": st.session_state.get('textarea_mode', 'auto'),
+                "textarea_height": st.session_state.get('textarea_height', 68),
+                "textarea_auto_max": st.session_state.get('textarea_auto_max', 400),
             }
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -422,6 +426,40 @@ class SettingsMixin:
                 st.session_state.layout_height = new_height
                 self._save_settings()
         if st.button("应用布局", use_container_width=True, key=f"{key_prefix}apply_layout_btn"):
+            st.rerun()
+
+    def _render_textarea_settings(self, key_prefix=""):
+        """文本框高度设置：固定高度 或 自适应内容（多处复用）"""
+        st.caption("📝 文本框高度")
+
+        mode_key = f"{key_prefix}textarea_height_mode"
+        height_key = f"{key_prefix}textarea_height_slider"
+        cur_mode = st.session_state.get('textarea_mode', 'auto')
+        cur_height = st.session_state.get('textarea_height', 68)
+
+        try:
+            mode = st.pills("文本框高度模式", ["固定值", "自适应"], selection_mode="single",
+                            default="自适应" if cur_mode == "auto" else "固定值",
+                            key=mode_key, label_visibility="collapsed")
+        except Exception:
+            mode = st.radio("文本框高度模式", ["固定值", "自适应"], horizontal=True,
+                            index=0 if cur_mode == "fixed" else 1,
+                            key=mode_key, label_visibility="collapsed")
+
+        if mode == "固定值":
+            new_height = st.slider("固定高度(px)", 40, 400, cur_height,
+                                   key=height_key, label_visibility="collapsed")
+            st.session_state.textarea_height = new_height
+            st.session_state.textarea_mode = "fixed"
+        else:
+            max_h = st.slider("自适应最大高度(px)", 80, 800,
+                              st.session_state.get('textarea_auto_max', 400),
+                              key=f"{key_prefix}textarea_auto_max_slider", label_visibility="collapsed")
+            st.session_state.textarea_auto_max = max_h
+            st.session_state.textarea_mode = "auto"
+
+        if st.button("应用文本框设置", use_container_width=True, key=f"{key_prefix}apply_textarea_btn"):
+            self._save_settings()
             st.rerun()
 
     def _render_datasource_loader(self):
@@ -916,6 +954,9 @@ class SettingsMixin:
             st.divider()
 
         self._render_layout_sliders(key_prefix=key_prefix)
+
+        st.divider()
+        self._render_textarea_settings(key_prefix=key_prefix)
 
         if show_datasource:
             st.divider()

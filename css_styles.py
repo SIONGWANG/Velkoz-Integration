@@ -137,3 +137,58 @@ STATUS_BUTTON_JS = """
 })();
 </script>
 """
+
+
+def build_textarea_auto_js(mode="auto", max_height=400, fixed_height=68):
+    """生成文本框高度脚本。
+    mode:
+      'auto'  — 高度随内容自适应（上限 max_height），超过上限出现滚动条
+      'fixed' — 固定高度 fixed_height
+    """
+    mode_js = "auto" if mode == "auto" else "fixed"
+    return f"""
+<script>
+(function() {{
+    var doc = window.parent.document;
+    var MODE = '{mode_js}';
+    var MAX_H = {int(max_height)};
+    var FIXED_H = {int(fixed_height)};
+
+    function fit(ta) {{
+        if (MODE === 'fixed') {{
+            ta.style.height = FIXED_H + 'px';
+            ta.style.overflowY = FIXED_H < ta.scrollHeight ? 'auto' : 'hidden';
+            return;
+        }}
+        ta.style.height = 'auto';
+        var h = ta.scrollHeight;
+        if (h > MAX_H) {{
+            ta.style.height = MAX_H + 'px';
+            ta.style.overflowY = 'auto';
+        }} else {{
+            ta.style.height = h + 'px';
+            ta.style.overflowY = 'hidden';
+        }}
+    }}
+
+    function attach() {{
+        var list = doc.querySelectorAll('div[data-testid="stTextArea"] textarea');
+        for (var i = 0; i < list.length; i++) {{
+            var ta = list[i];
+            if (!ta.dataset.fitBound) {{
+                ta.dataset.fitBound = '1';
+                ta.addEventListener('input', function () {{ fit(this); }});
+            }}
+            fit(ta);
+        }}
+    }}
+
+    attach();
+
+    if (window.parent._taFitObserver) {{ window.parent._taFitObserver.disconnect(); }}
+    window.parent._taFitObserver = new MutationObserver(function () {{ attach(); }});
+    window.parent._taFitObserver.observe(doc.body, {{childList: true, subtree: true}});
+}})();
+</script>
+"""
+

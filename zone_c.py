@@ -193,7 +193,8 @@ class ZoneCMixin:
 
         # 6. 备注 + 保存/提交
         with st.form(key=f"form_submit_{group['id']}", clear_on_submit=False):
-            feedback_text = st.text_area("备注", height=68, placeholder="在此输入备注 (选填)", key=f"feedback_{group['id']}")
+            _ta_h = st.session_state.get('textarea_height', 68)
+            feedback_text = st.text_area("备注", height=_ta_h, placeholder="在此输入备注 (选填)", key=f"feedback_{group['id']}")
             # 检测用户是否手动编辑了备注（与标签同步后的内容不同）
             last_tags_for_check = st.session_state.get(f"_last_tags_{group['id']}", "")
             manual_key = f"_manual_edit_{group['id']}"

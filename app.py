@@ -10,7 +10,7 @@ from utils import (
     load_scan_rules,
 )
 
-from css_styles import MAIN_CSS, STATUS_BUTTON_JS
+from css_styles import MAIN_CSS, STATUS_BUTTON_JS, build_textarea_auto_js
 from disk_io import load_qa_report
 from data_mixin import DataMixin
 from viewer import get_sync_manager
@@ -52,6 +52,9 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if '_completion_balloons_shown' not in st.session_state: st.session_state._completion_balloons_shown = False
         if 'filter_pills' not in st.session_state: st.session_state.filter_pills = "全部"
         if 'enable_hotkeys' not in st.session_state: st.session_state.enable_hotkeys = settings.get('enable_hotkeys', True)
+        if 'textarea_mode' not in st.session_state: st.session_state.textarea_mode = settings.get('textarea_mode', 'auto')
+        if 'textarea_height' not in st.session_state: st.session_state.textarea_height = settings.get('textarea_height', 68)
+        if 'textarea_auto_max' not in st.session_state: st.session_state.textarea_auto_max = settings.get('textarea_auto_max', 400)
 
         if 'qa_df' not in st.session_state: st.session_state.qa_df = pd.DataFrame()
         if 'qa_source' not in st.session_state: st.session_state.qa_source = "未加载"
@@ -96,6 +99,19 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         st.set_page_config(layout="wide", page_title=f"{APP_NAME} V{version}")
         
         st.markdown(MAIN_CSS + STATUS_BUTTON_JS, unsafe_allow_html=True)
+
+        # 文本框高度脚本（固定/自适应），随设置注入
+        try:
+            components.html(
+                build_textarea_auto_js(
+                    mode=st.session_state.get('textarea_mode', 'auto'),
+                    max_height=st.session_state.get('textarea_auto_max', 400),
+                    fixed_height=st.session_state.get('textarea_height', 68),
+                ),
+                height=0, width=0
+            )
+        except Exception:
+            logging.warning("文本框高度脚本注入失败", exc_info=True)
 
         if st.session_state.get('enable_hotkeys', True):
             self.inject_hotkeys()

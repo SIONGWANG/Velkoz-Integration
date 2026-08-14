@@ -419,12 +419,13 @@ class ZoneBMixin:
 
         st.markdown("---")
         t1, t2 = st.columns(2)
+        _ta_h = st.session_state.get('textarea_height', 68)
         with t1:
             c_zh = read_txt(os.path.join(group['root'], group['txt_zh']) if group['txt_zh'] else None)
-            st.text_area("ZH", value=c_zh, height=60, label_visibility="collapsed", key=f"zh_{group['id']}")
+            st.text_area("ZH", value=c_zh, height=_ta_h, label_visibility="collapsed", key=f"zh_{group['id']}")
         with t2:
             c_en = read_txt(os.path.join(group['root'], group['txt_en']) if group['txt_en'] else None)
-            st.text_area("EN", value=c_en, height=60, label_visibility="collapsed", key=f"en_{group['id']}")
+            st.text_area("EN", value=c_en, height=_ta_h, label_visibility="collapsed", key=f"en_{group['id']}")
 
         st.markdown("---")
         qa_df = st.session_state.qa_df
