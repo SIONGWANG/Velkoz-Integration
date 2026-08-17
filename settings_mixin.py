@@ -69,7 +69,7 @@ class SettingsMixin:
                 st.session_state['_settings_load_error'] = str(e)
         return {"layout_width": 80, "layout_height": 85, "view_mode": "四宫格", "root_path": "",
                 "annotator_confirm_enabled": False, "operator_name": "", "task_type": "新标",
-                "textarea_mode": "auto", "textarea_height": 68}
+                "textarea_mode": "auto", "textarea_height": 68, "ai_badge_enabled": False}
 
     def _save_settings(self):
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")
@@ -87,6 +87,7 @@ class SettingsMixin:
                 "textarea_mode": st.session_state.get('textarea_mode', 'auto'),
                 "textarea_height": st.session_state.get('textarea_height', 68),
                 "textarea_auto_max": st.session_state.get('textarea_auto_max', 400),
+                "ai_badge_enabled": st.session_state.get('ai_badge_enabled', False),
             }
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -459,6 +460,18 @@ class SettingsMixin:
             st.session_state.textarea_mode = "auto"
 
         if st.button("应用文本框设置", use_container_width=True, key=f"{key_prefix}apply_textarea_btn"):
+            self._save_settings()
+            st.rerun()
+
+        st.divider()
+        ai_badge_val = st.checkbox(
+            "编号栏显示 AI 初审标记",
+            value=st.session_state.get('ai_badge_enabled', False),
+            key=f"{key_prefix}ai_badge_toggle",
+            help="在左侧编号后显示 🤖✓ / 🤖✗ 初审标记。默认关闭，避免干扰验收。",
+        )
+        if ai_badge_val != st.session_state.get('ai_badge_enabled', False):
+            st.session_state.ai_badge_enabled = ai_badge_val
             self._save_settings()
             st.rerun()
 

@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 from ai_review import build_ai_badge_map
 from disk_io import preload_next_images
 
-# AI 初审标记（仅用于呈现，绝不参与验收结果判定）
+# AI 初审标记（默认关闭；仅用于呈现，绝不参与验收结果判定）
 _AI_BADGE_EMOJI = {'pass': '🤖✓', 'fail': '🤖✗', 'modified': '🤖🟦', 'pending': '🤖🟡', 'warn': '🤖⚠️'}
 
 
@@ -73,8 +73,9 @@ class ZoneAMixin:
 
             id_to_group = {g['id']: g for g in groups}
 
-            # AI 初审标记表（只读展示，不影响验收）
-            ai_badge_map = build_ai_badge_map(st.session_state.get('qa_df'), all_ids)
+# AI 初审标记表（只读展示，不影响验收；可在"更多设置"开关）
+            ai_badge_enabled = st.session_state.get('ai_badge_enabled', False)
+            ai_badge_map = build_ai_badge_map(st.session_state.get('qa_df'), all_ids) if ai_badge_enabled else {}
             if ai_badge_map:
                 st.caption("🤖 = AI 初审：✓通过　✗不通过（仅预览，不作为验收依据）")
 

@@ -114,6 +114,15 @@ div[data-testid="column"]:nth-of-type(2) div[data-testid="stCaptionContainer"] {
 div[data-testid="column"]:nth-of-type(2) div[data-testid="stNotification"] { padding: 0.2rem 0.5rem !important; }
 div[data-testid="column"]:nth-of-type(2) textarea { margin-bottom: -4px !important; }
 div[data-testid="column"]:nth-of-type(2) details[data-testid="stExpander"] { margin: 0 !important; }
+/* 紧凑 AI 初审：修复条不撑高页面 */
+.ai-fix-row { margin: 2px 0 !important; }
+div[data-testid="stPopover"] > button {
+    padding: 0.2rem 0.5rem !important; min-height: 24px !important;
+    font-size: 0.78rem !important; border-radius: 4px !important;
+    border: 1px solid #ddd !important; background-color: #fafafa !important; color: #334155 !important;
+}
+div[data-testid="stPopover"] > button:hover { border-color: #6366f1 !important; background-color: #eef2ff !important; color: #3730a3 !important; }
+div[data-testid="stPopover"] section { padding: 0.4rem 0.6rem !important; }
 </style>
 """
 

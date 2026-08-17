@@ -56,6 +56,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if 'textarea_mode' not in st.session_state: st.session_state.textarea_mode = settings.get('textarea_mode', 'auto')
         if 'textarea_height' not in st.session_state: st.session_state.textarea_height = settings.get('textarea_height', 68)
         if 'textarea_auto_max' not in st.session_state: st.session_state.textarea_auto_max = settings.get('textarea_auto_max', 400)
+        if 'ai_badge_enabled' not in st.session_state: st.session_state.ai_badge_enabled = settings.get('ai_badge_enabled', False)
 
         if 'qa_df' not in st.session_state: st.session_state.qa_df = pd.DataFrame()
         if 'qa_source' not in st.session_state: st.session_state.qa_source = "未加载"

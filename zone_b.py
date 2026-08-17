@@ -4,11 +4,12 @@ import streamlit.components.v1 as components
 import os
 import re
 import json
+import html
 
 from ai_review import (
-    parse_json_output, normalize_conclusion, get_ai_record,
-    build_highlight_blocks, split_reasons, collect_json_issues,
-    HIGHLIGHT_CSS,
+    parse_json_output, get_ai_record,
+    get_poster_issues, get_instruction_issues,
+    compute_minimal_fixes, apply_fix_to_text, as_text, build_issue_chip_css,
 )
 
 from utils import APP_VERSION, BASE_DIR, read_txt
@@ -424,103 +425,211 @@ class ZoneBMixin:
             self.render_single_image_view(group, images)
 
         st.markdown("---")
-        # AI 初审高亮：仅呈现原文中疑似有误的片段 + 修正建议，不影响验收
         ai_rec = get_ai_record(st.session_state.get('qa_df'), str(group['id']))
-        if ai_rec:
-            self._render_ai_text_highlight(group, ai_rec)
+        ai_has_data = bool(ai_rec)
 
         t1, t2 = st.columns(2)
         _ta_h = st.session_state.get('textarea_height', 68)
         with t1:
             c_zh = read_txt(os.path.join(group['root'], group['txt_zh']) if group['txt_zh'] else None)
             st.text_area("ZH", value=c_zh, height=_ta_h, label_visibility="collapsed", key=f"zh_{group['id']}")
+            if ai_has_data:
+                self._render_ai_fix_bar(group, 'zh', c_zh, ai_rec)
         with t2:
             c_en = read_txt(os.path.join(group['root'], group['txt_en']) if group['txt_en'] else None)
             st.text_area("EN", value=c_en, height=_ta_h, label_visibility="collapsed", key=f"en_{group['id']}")
+            if ai_has_data:
+                self._render_ai_fix_bar(group, 'en', c_en, ai_rec)
+
+        if ai_has_data:
+            self._render_ai_popover(group, ai_rec)
 
         st.markdown("---")
-        self._render_ai_review_panel(group)
 
     # ============================================
-    # 🤖 AI 初审（质检结果.csv）呈现 —— 仅供人眼复核，绝不写入验收结果
+    # 🤖 AI 初审（质检结果.csv）紧凑呈现 —— 只读参考，绝不写入验收结果
+    # 设计目标：默认不占页面高度；有问题的片段在文本框下方一行展示；
+    #          图片问题等细节统一放在悬浮窗内，点开才看到。
     # ============================================
 
-    def _render_ai_text_highlight(self, group, ai_rec):
-        """在文本框上方呈现原文差异高亮：标红 = AI 认为有误的原文片段。"""
-        zh_orig = read_txt(os.path.join(group['root'], group['txt_zh']) if group['txt_zh'] else None)
-        zh_corr = ai_rec.get('Corrected_CH') or ''
-        en_orig = read_txt(os.path.join(group['root'], group['txt_en']) if group['txt_en'] else None)
-        en_corr = ai_rec.get('Corrected_EN') or ''
+    def _ai_issue_line(self, item):
+        """把一条问题 dict 转成紧凑展示元组 (badge_html, desc, sug)。"""
+        itype = str(item.get('type') or item.get('error_type') or '未分类')
+        desc = str(item.get('desc') or item.get('reason') or '').strip()
+        sug = str(item.get('suggestion') or '').strip()
+        sev = str(item.get('severity') or '').strip()
+        sev_cls = {'严重': 'ai-sev-high', '中等': 'ai-sev-mid', '轻微': 'ai-sev-low'}.get(sev, '')
+        badge = (f'<span class="ai-chip ai-chip-info">{itype}</span> '
+                 f'<span class="{sev_cls}">[{sev}]</span>' if sev else
+                 f'<span class="ai-chip ai-chip-info">{itype}</span>')
+        return badge, desc, sug
 
-        blocks = build_highlight_blocks([
-            ('中文 / ZH', zh_orig, zh_corr),
-            ('英文 / EN', en_orig, en_corr),
-        ])
-        if not blocks:
-            return
-        st.markdown(HIGHLIGHT_CSS, unsafe_allow_html=True)
-        st.caption("🖍️ AI 初审文字标注（只有疑似有误的片段才会被标色，仅供参考）")
-        for block in blocks:
-            st.markdown(block, unsafe_allow_html=True)
+    def _write_txt_atomic(self, path, content):
+        """原子写回文本文件，避免写一半。"""
+        if not path:
+            return False, "路径为空"
+        try:
+            tmp = path + ".tmp"
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(content)
+            os.replace(tmp, path)
+            return True, ""
+        except Exception as e:
+            return False, f"写回失败: {e}"
 
-    def _render_ai_review_panel(self, group):
-        """B 区底部：AI 初审结论 + 问题明细 + 完整 JSON 呈现。
-        兼容旧格式(final_report.csv: true/false)与新格式(质检结果.csv: 合格/不合格)。"""
-        qa_df = st.session_state.get('qa_df')
-        if qa_df is None or getattr(qa_df, 'empty', True):
-            st.caption("ℹ️ 当前未加载质检表，或内容为空。")
-            _src = st.session_state.get('qa_source', '')
-            if _src:
-                st.caption(f"（{_src}）")
-            return
-        if '所在文件夹(ID)' not in qa_df.columns:
-            st.warning("⚠️ 已加载数据源，但未找到列名：`所在文件夹(ID)`。请检查表头是否匹配。")
+    def _text_path(self, group, lang):
+        if lang == 'zh':
+            return os.path.join(group['root'], group['txt_zh']) if group['txt_zh'] else None
+        return os.path.join(group['root'], group['txt_en']) if group['txt_en'] else None
+
+    def _orig_snapshot_key(self, group, lang):
+        return f"_ai_orig_{lang}_{group['id']}"
+
+    def _cur_text(self, group, lang):
+        if lang == 'zh':
+            return as_text(st.session_state.get(f"zh_{group['id']}", ""))
+        return as_text(st.session_state.get(f"en_{group['id']}", ""))
+
+    def _render_ai_fix_bar(self, group, lang, orig_text, ai_rec):
+        """文本框正下方：一行式修复条。
+        仅展示 AI 判定有误的片段（原片段 → 建议），正确部分完全不动；
+        可「整体采纳」「仅采纳某片段」「恢复原文」，均写回 .txt 并更新文本框。
+        """
+        orig_text = as_text(orig_text)
+        corr = ai_rec.get('Corrected_CH') if lang == 'zh' else ai_rec.get('Corrected_EN')
+        fixes = compute_minimal_fixes(orig_text, as_text(corr))
+        if not fixes:
             return
 
-        ai_rec = get_ai_record(qa_df, str(group['id']))
-        if ai_rec is None:
-            st.info("ℹ️ 质检表中未找到当前 ID 的对应数据。")
-            return
+        st.markdown(build_issue_chip_css(), unsafe_allow_html=True)
+        tkey = f"zh_{group['id']}" if lang == 'zh' else f"en_{group['id']}"
+        sync_key = f"_ai_fix_state_{tkey}_{group['id']}"
+        snap_key = self._orig_snapshot_key(group, lang)
+        if snap_key not in st.session_state:
+            st.session_state[snap_key] = orig_text
 
-        level, label = normalize_conclusion(ai_rec.get('质检结论'))
-        reason = str(ai_rec.get('拒绝原因分析') or '').strip()
+        # 当前文本框内容（可能已被采纳修改过）
+        cur_text = self._cur_text(group, lang) or orig_text
+
+        # 应用动作（pre-state：按钮 on_click 存储，这里消费并写盘）
+        action = st.session_state.pop(f"_ai_fix_act_{tkey}_{group['id']}", None)
+        if action and action.get('op'):
+            op = action['op']
+            if op == 'apply_all':
+                new_text = cur_text
+                for fx in fixes:
+                    new_text = apply_fix_to_text(new_text, fx)
+                ok, msg = self._write_txt_atomic(self._text_path(group, lang), new_text)
+                if ok:
+                    st.session_state[tkey] = new_text
+                    st.session_state[sync_key] = new_text
+                    st.session_state[f"_ai_fix_applied_{tkey}_{group['id']}"] = True
+                    st.toast("✅ 已采纳全部修正")
+                    st.rerun(scope="app")
+                else:
+                    st.warning(msg)
+            elif op == 'apply_one':
+                idx = action.get('idx', 0)
+                if 0 <= idx < len(fixes):
+                    new_text = apply_fix_to_text(cur_text, fixes[idx])
+                    ok, msg = self._write_txt_atomic(self._text_path(group, lang), new_text)
+                    if ok:
+                        st.session_state[tkey] = new_text
+                        st.session_state[sync_key] = new_text
+                        st.toast(f"✅ 已采纳第 {idx+1} 处")
+                        st.rerun(scope="app")
+                    else:
+                        st.warning(msg)
+            elif op == 'restore':
+                orig_restore = st.session_state.get(snap_key, orig_text)
+                ok, msg = self._write_txt_atomic(self._text_path(group, lang), orig_restore)
+                if ok:
+                    st.session_state[tkey] = orig_restore
+                    st.session_state[sync_key] = orig_restore
+                    st.session_state[f"_ai_fix_applied_{tkey}_{group['id']}"] = False
+                    st.toast("↩️ 已恢复原文本")
+                    st.rerun(scope="app")
+                else:
+                    st.warning(msg)
+
+        lang_label = "中文" if lang == 'zh' else "英文"
+        did_apply = st.session_state.get(f"_ai_fix_applied_{tkey}_{group['id']}", False)
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:#64748b;'
+            f'background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:2px 6px;margin:0 0 2px;">'
+            f'<span>✍️ {lang_label} AI 修正（仅高亮疑误片段，其余未动）：</span>'
+            f'{self._build_fix_chips(fixes)}'
+            f'<span style="color:#16a34a;font-size:0.72rem;">{"● 已应用" if did_apply else ""}</span>'
+            f'</div>',
+            unsafe_allow_html=True)
+
+        # 操作按钮
+        btn_c = st.columns([2.2, 1, 1])
+        with btn_c[0]:
+            st.caption(f"共 {len(fixes)} 处")
+        with btn_c[1]:
+            st.button("✅ 整体采纳", key=f"ai_all_{tkey}_{group['id']}", use_container_width=True,
+                      help="按 AI 建议修正全部片段并写回指令文件",
+                      on_click=lambda: st.session_state.update(
+                          {f"_ai_fix_act_{tkey}_{group['id']}": {'op': 'apply_all'}}))
+        with btn_c[2]:
+            st.button("↩️ 恢复原文", key=f"ai_rest_{tkey}_{group['id']}", use_container_width=True,
+                      help="撤销 AI 修正，恢复为原指令",
+                      on_click=lambda: st.session_state.update(
+                          {f"_ai_fix_act_{tkey}_{group['id']}": {'op': 'restore'}}))
+
+        # 逐片段采纳（更精确的局部替换）
+        ncols = len(fixes) + 1
+        seg_cols = st.columns(ncols)
+        with seg_cols[0]:
+            st.caption("仅改片段:")
+        for i in range(len(fixes)):
+            with seg_cols[i + 1]:
+                old_frag = (fixes[i]['old'] or '(空)')
+                st.button(old_frag[:6], key=f"ai_seg_{tkey}_{group['id']}_{i}", use_container_width=True,
+                          help=f"仅采纳第 {i+1} 处：{old_frag} → {fixes[i]['new']}",
+                          on_click=lambda _i=i: st.session_state.update(
+                              {f"_ai_fix_act_{tkey}_{group['id']}": {'op': 'apply_one', 'idx': _i}}))
+
+    def _build_fix_chips(self, fixes):
+        """把修正片段渲染为静态度片（无按钮，只用于修复条展示）。"""
+        rows = []
+        for fx in fixes:
+            if fx['kind'] == 'delete':
+                rows.append(f'<span class="ai-chip ai-chip-wrong">删：{fx["old"]}</span>')
+            elif fx['kind'] == 'insert':
+                rows.append(f'<span class="ai-chip ai-chip-ok">增：{fx["new"]}</span>')
+            else:
+                rows.append(f'<span class="ai-chip ai-chip-wrong">{fx["old"]}</span>'
+                            f'<span class="ai-fix-arrow">→</span>'
+                            f'<span class="ai-chip ai-chip-ok">{fx["new"]}</span>')
+        return ''.join(rows)
+
+    def _render_ai_popover(self, group, ai_rec):
+        """图片问题 + 指令问题悬浮窗：点开才显示，不占用验收主页面。"""
         json_data = parse_json_output(ai_rec.get('JSON_Output'))
-        issues = collect_json_issues(json_data)
+        poster = get_poster_issues(json_data)
+        instr = get_instruction_issues(json_data)
+        if not poster and not instr:
+            return
 
-        if level == 'pass':
-            st.success("🤖 **AI 初审：通过** ✅（仅供参考，不影响验收结果）")
-        elif level == 'fail':
-            st.error("🤖 **AI 初审：不通过** ✗（仅供参考，不影响验收结果）")
-        elif level == 'modified':
-            st.info(f"🤖 **AI 初审：{label}**（仅供参考，不影响验收结果）")
-        elif level == 'warn':
-            st.warning("🤖 **AI 初审：模型输出异常**（初审详情无法解析，请人工重点复核）")
-        else:
-            st.info(f"🤖 **AI 初审：{label}**（仅供参考，不影响验收结果）")
-
-        reasons = split_reasons(reason)
-        if reasons:
-            st.markdown("**📌 拒绝原因分析：**")
-            for r in reasons:
-                st.markdown(f"- {r}")
-
-        if issues:
-            with st.expander(f"📋 初审问题明细（{len(issues)} 项）", expanded=True):
-                for i, iss in enumerate(issues, 1):
-                    itype = str(iss.get('type') or '未分类')
-                    desc = str(iss.get('desc') or iss.get('reason') or '').strip()
-                    sug = str(iss.get('suggestion') or '').strip()
-                    st.markdown(f"**{i}. [{itype}]** {desc}")
-                    if sug:
-                        st.caption(f"💡 建议：{sug}")
-                    if (iss.get('original_fragment') or '') != '':
-                        st.caption(f"🗂 原文片段：`{iss.get('original_fragment')}`")
-
-        st.markdown("**🧾 AI 初审 JSON 数据：**")
-        if json_data:
-            st.json(json_data)
-        else:
-            st.caption("该行 JSON_Output 为空或格式异常，无法展开。")
-            raw_json = str(ai_rec.get('JSON_Output') or '').strip()
-            if raw_json:
-                st.code(raw_json, language='json')
+        st.markdown(build_issue_chip_css(), unsafe_allow_html=True)
+        flag = "✗" if poster else "✓"
+        lab = f"🖼️ 图片问题 {len(poster)} ｜ 📝 指令 {len(instr)} [{flag}]"
+        with st.popover(lab, use_container_width=True):
+            if poster:
+                st.markdown(f"**🖼️ 图片问题（{len(poster)}）**")
+                for it in poster:
+                    badge, desc, sug = self._ai_issue_line(it)
+                    st.markdown(f'<div class="ai-issue-item">{badge} {html_escape(desc or "")}' +
+                                (f'<br><span style="color:#64748b">💡 {html_escape(sug)}</span>' if sug else '') +
+                                '</div>', unsafe_allow_html=True)
+            if instr:
+                st.markdown(f"**📝 指令问题（{len(instr)}）**")
+                for it in instr:
+                    badge, desc, sug = self._ai_issue_line(it)
+                    st.markdown(f'<div class="ai-issue-item">{badge} {html_escape(desc or "")}' +
+                                (f'<br><span style="color:#64748b">💡 {html_escape(sug)}</span>' if sug else '') +
+                                '</div>', unsafe_allow_html=True)
+            st.caption("以上仅供参考，不影响你的验收判定。")
+        return

@@ -217,6 +217,66 @@ def build_highlight_blocks(zpairs):
     return blocks
 
 
+def compute_minimal_fixes(orig, corr):
+    """按「片段」计算最小修正方案，保证未出错片段原样不动。
+
+    返回列表，每项为 dict:
+      {kind, old, new, start, end}
+    - kind: 'replace' / 'delete' / 'insert'
+    - old / new: 片段文本（insert 时 old 为空，delete 时 new 为空）
+    - start / end: 该片段在原文中的字符区间（insert 时 start==end==插入位置）
+    只针对确有差异的片段，相同文本不产生任何修改项。
+    """
+    orig = orig or ''
+    corr = corr or ''
+    if not orig or not corr or orig == corr:
+        return []
+    fixes = []
+    matcher = difflib.SequenceMatcher(None, orig, corr, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        a = orig[i1:i2]
+        b = corr[j1:j2]
+        if tag == 'equal':
+            continue
+        if tag == 'replace':
+            fixes.append({'kind': 'replace', 'old': a, 'new': b, 'start': i1, 'end': i2})
+        elif tag == 'delete':
+            fixes.append({'kind': 'delete', 'old': a, 'new': '', 'start': i1, 'end': i2})
+        elif tag == 'insert':
+            fixes.append({'kind': 'insert', 'old': '', 'new': b, 'start': i2, 'end': i2})
+    return fixes
+
+
+def apply_fix_to_text(text, fix):
+    """把单个 fix 拼接到原文中，只改该片段，其余保持不变。"""
+    text = as_text(text)
+    start = fix['start']
+    end = fix['end']
+    new_val = text[:start] + (fix.get('new') or '') + text[end:]
+    return new_val
+
+
+def as_text(v):
+    if v is None:
+        return ''
+    return str(v)
+
+
+def summarize_fixes(fixes):
+    """把修正列表压缩成人可读的一行摘要，如：'3处建议'。"""
+    if not fixes:
+        return ''
+    kinds = {'replace': '改', 'insert': '增', 'delete': '删'}
+    parts = []
+    from collections import Counter
+    cnt = Counter(f['kind'] for f in fixes)
+    for k in ('replace', 'insert', 'delete'):
+        if cnt.get(k):
+            parts.append(f'{cnt[k]}处{kinds[k]}')
+    return '、'.join(parts) if parts else f'{len(fixes)}处'
+
+
+
 def split_reasons(reason):
     """按中文/英文分号拆分原因列表。"""
     if not reason:
@@ -235,3 +295,39 @@ def collect_json_issues(json_data):
             if isinstance(item, dict):
                 issues.append(item)
     return issues
+
+
+def get_poster_issues(json_data):
+    """从 JSON_Output 提取图片（海报）问题明细。"""
+    if not isinstance(json_data, dict):
+        return []
+    items = json_data.get('poster_issues') or []
+    return [it for it in items if isinstance(it, dict)]
+
+
+def get_instruction_issues(json_data):
+    """从 JSON_Output 提取指令问题明细。"""
+    if not isinstance(json_data, dict):
+        return []
+    items = json_data.get('instruction_issues') or []
+    return [it for it in items if isinstance(it, dict)]
+
+
+def build_issue_chip_css():
+    """悬浮窗 / 紧凑高亮所用 CSS。"""
+    return """
+<style>
+.ai-chip { display:inline-block; padding:1px 8px; margin:0 4px 3px 0; border-radius:10px;
+           font-size:0.75rem; line-height:1.5; }
+.ai-chip-wrong { background:#ffe9e9; color:#b71c1c; border:1px solid #f0b0b0; text-decoration:none; }
+.ai-chip-ok    { background:#e9f7ec; color:#1e6b34; border:1px solid #b0ddbd; text-decoration:none; }
+.ai-chip-info  { background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; }
+.ai-fix-row    { margin:2px 0; font-size:0.8rem; line-height:1.6; color:#334155; }
+.ai-fix-row b  { color:#b71c1c; }
+.ai-fix-arrow  { color:#64748b; margin:0 4px; }
+.ai-issue-item { padding:4px 0; border-bottom:1px dashed #e5e7eb; font-size:0.8rem; line-height:1.55; }
+.ai-sev-high   { color:#dc2626; font-weight:600; }
+.ai-sev-mid    { color:#d97706; font-weight:600; }
+.ai-sev-low    { color:#2563eb; }
+</style>
+"""
