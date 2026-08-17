@@ -12,6 +12,7 @@ from utils import (
 
 from css_styles import MAIN_CSS, STATUS_BUTTON_JS, build_textarea_auto_js
 from disk_io import load_qa_report
+import ai_review
 from data_mixin import DataMixin
 from viewer import get_sync_manager
 from settings_mixin import SettingsMixin
@@ -156,6 +157,8 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         # === A 区 ===
         if current_group:
             with col_a:
+                # 先加载 AI 初审结果，保证编号栏上的 AI 标记第一时间可用
+                ai_review.ensure_default_qa(st.session_state)
                 self.render_a_zone()
                 self.render_inspection_panel()
 
@@ -175,13 +178,14 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                         except Exception as e:
                             st.error(f"读取失败: {e}")
                     else:
-                        default_qa_path = os.path.join(st.session_state.root_path, "final_report.csv") if st.session_state.root_path else ""
-                        if default_qa_path and os.path.exists(default_qa_path):
+                        # 优先读取“质检结果.csv”（AI初审结果），其次兼容旧文件 final_report.csv
+                        default_qa_path = ai_review.find_qa_path(st.session_state.root_path) or ""
+                        if default_qa_path:
                             st.session_state.qa_df = load_qa_report(default_qa_path)
-                            st.session_state.qa_source = f"默认文件: final_report.csv"
+                            st.session_state.qa_source = f"默认文件: {os.path.basename(default_qa_path)}"
                         else:
                             st.session_state.qa_df = pd.DataFrame()
-                            st.session_state.qa_source = "⚠️ 未加载 (文件夹下无 final_report.csv)"
+                            st.session_state.qa_source = "⚠️ 未加载 (文件夹下无 质检结果.csv / final_report.csv)"
 
                     # QA报告加载失败提示
                     if st.session_state.get('_qa_load_failed'):

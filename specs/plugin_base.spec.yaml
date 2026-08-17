@@ -1,0 +1,124 @@
+# OpenSpec 版本声明，固定写1.5.0
+openapi: 1.5.0
+info:
+  title: 质检验收插件基础规范
+  version: 1.0.0
+  description: 所有质检验收辅助工具必须遵守的统一接口契约，保障低耦合插拔
+  contact:
+    name: 质检项目组
+
+# ========== 1. 数据结构定义 ==========
+schema:
+  # 插件任务输入结构
+  PluginTaskInput:
+    description: 所有插件执行任务的统一入参
+    type: object
+    required:
+      - task_id
+      - input_path
+    properties:
+      task_id:
+        type: string
+        description: 全局唯一任务ID，全链路追踪用
+      input_path:
+        type: string
+        description: 待处理文件夹路径，支持局域网UNC路径
+      custom_params:
+        type: object
+        default: {}
+        description: 插件自定义参数，不同插件自行扩展
+
+  # 插件任务输出结构
+  PluginTaskOutput:
+    description: 所有插件执行完成后的统一返回
+    type: object
+    required:
+      - task_id
+      - status
+      - result_data
+    properties:
+      task_id:
+        type: string
+        description: 对应输入的任务ID
+      status:
+        type: string
+        enum: [success, failed, running, skipped]
+        description: 任务执行状态
+      result_data:
+        type: object
+        description: 结构化执行结果，不同插件自行定义字段
+      output_path:
+        type: string
+        default: ""
+        description: 插件产出文件的存放目录
+      error_msg:
+        type: string
+        default: ""
+        description: 失败时的错误信息
+      cost_time:
+        type: float
+        default: 0.0
+        description: 执行耗时，单位秒
+
+  # 插件元信息结构
+  PluginInfo:
+    description: 插件基础信息
+    type: object
+    required:
+      - name
+      - version
+      - description
+    properties:
+      name:
+        type: string
+        description: 插件唯一标识名称
+      version:
+        type: string
+        description: 语义化版本号，如 1.2.0
+      description:
+        type: string
+        description: 插件功能描述
+      author:
+        type: string
+        default: ""
+
+# ========== 2. 接口定义 ==========
+interface:
+  BaseQualityPlugin:
+    description: 质检插件抽象基类，所有插件必须实现此接口
+    methods:
+      get_plugin_info:
+        description: 获取插件元信息
+        returns:
+          $ref: "#/schema/PluginInfo"
+
+      init:
+        description: 插件初始化，加载配置、初始化模型/资源
+        params:
+          config:
+            type: object
+            description: 从配置文件读取的插件专属配置
+        returns:
+          type: boolean
+          description: 初始化是否成功
+        exceptions:
+          - PluginInitError
+
+      run:
+        description: 同步执行插件核心逻辑
+        params:
+          input_data:
+            $ref: "#/schema/PluginTaskInput"
+        returns:
+          $ref: "#/schema/PluginTaskOutput"
+        exceptions:
+          - PluginRunError
+
+# ========== 3. 异常定义 ==========
+exception:
+  PluginInitError:
+    description: 插件初始化失败异常
+    code: 1001
+  PluginRunError:
+    description: 插件执行失败异常
+    code: 1002

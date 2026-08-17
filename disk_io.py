@@ -253,16 +253,23 @@ def preload_next_images(current_idx, all_groups):
 
 
 @st.cache_data(show_spinner=False)
+def _load_qa_cached(filepath, mtime):
+    try:
+        df = pd.read_csv(filepath, dtype=str, encoding='utf-8-sig')
+        return df
+    except Exception as e:
+        # 记录警告日志
+        logging.warning("QA报告加载失败: %s - %s", filepath, str(e))
+        # 标记加载失败状态
+        st.session_state['_qa_load_failed'] = True
+        st.session_state['_qa_load_error'] = str(e)
+        return pd.DataFrame()
+
+
 def load_qa_report(filepath):
+    """读取 QA 报告（质检结果.csv / final_report.csv 等）。
+    以文件修改时间参与缓存键，模型重新生成 CSV 后可自动读到新内容。"""
     if os.path.exists(filepath):
-        try:
-            df = pd.read_csv(filepath, dtype=str, encoding='utf-8-sig')
-            return df
-        except Exception as e:
-            # 记录警告日志
-            logging.warning("QA报告加载失败: %s - %s", filepath, str(e))
-            # 标记加载失败状态
-            st.session_state['_qa_load_failed'] = True
-            st.session_state['_qa_load_error'] = str(e)
-            return pd.DataFrame()
+        mtime = os.path.getmtime(filepath)
+        return _load_qa_cached(filepath, mtime)
     return pd.DataFrame()

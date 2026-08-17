@@ -5,6 +5,12 @@ import os
 import re
 import json
 
+from ai_review import (
+    parse_json_output, normalize_conclusion, get_ai_record,
+    build_highlight_blocks, split_reasons, collect_json_issues,
+    HIGHLIGHT_CSS,
+)
+
 from utils import APP_VERSION, BASE_DIR, read_txt
 from disk_io import get_display_image_bytes
 from easter_eggs import on_batch_complete
@@ -418,6 +424,11 @@ class ZoneBMixin:
             self.render_single_image_view(group, images)
 
         st.markdown("---")
+        # AI 初审高亮：仅呈现原文中疑似有误的片段 + 修正建议，不影响验收
+        ai_rec = get_ai_record(st.session_state.get('qa_df'), str(group['id']))
+        if ai_rec:
+            self._render_ai_text_highlight(group, ai_rec)
+
         t1, t2 = st.columns(2)
         _ta_h = st.session_state.get('textarea_height', 68)
         with t1:
@@ -428,28 +439,88 @@ class ZoneBMixin:
             st.text_area("EN", value=c_en, height=_ta_h, label_visibility="collapsed", key=f"en_{group['id']}")
 
         st.markdown("---")
-        qa_df = st.session_state.qa_df
-        if not qa_df.empty and '所在文件夹(ID)' in qa_df.columns:
-            qa_record = qa_df[qa_df['所在文件夹(ID)'] == str(group['id'])]
-            if not qa_record.empty:
-                qa_row = qa_record.iloc[-1]
-                qa_status = str(qa_row.get('质检结论', '未知')).lower()
-                qa_reason = qa_row.get('拒绝原因分析', '无')
-                if qa_status == 'true':
-                    st.success(f"**🤖 AI 质检通过** ✅ | **原因分析**：{qa_reason}")
-                else:
-                    st.error(f"**🤖 AI 质检未通过** ❌ | **原因分析**：{qa_reason}")
-                with st.expander("👀 查看完整 JSON 数据"):
-                    json_str = str(qa_row.get('JSON_Output', '{}'))
-                    try:
-                        parsed_json = json.loads(json_str.replace('""', '"'))
-                        st.json(parsed_json)
-                    except:
-                        st.code(json_str, language='json')
-            else:
-                st.info("ℹ️ 质检表中未找到当前 ID 的对应数据。")
+        self._render_ai_review_panel(group)
+
+    # ============================================
+    # 🤖 AI 初审（质检结果.csv）呈现 —— 仅供人眼复核，绝不写入验收结果
+    # ============================================
+
+    def _render_ai_text_highlight(self, group, ai_rec):
+        """在文本框上方呈现原文差异高亮：标红 = AI 认为有误的原文片段。"""
+        zh_orig = read_txt(os.path.join(group['root'], group['txt_zh']) if group['txt_zh'] else None)
+        zh_corr = ai_rec.get('Corrected_CH') or ''
+        en_orig = read_txt(os.path.join(group['root'], group['txt_en']) if group['txt_en'] else None)
+        en_corr = ai_rec.get('Corrected_EN') or ''
+
+        blocks = build_highlight_blocks([
+            ('中文 / ZH', zh_orig, zh_corr),
+            ('英文 / EN', en_orig, en_corr),
+        ])
+        if not blocks:
+            return
+        st.markdown(HIGHLIGHT_CSS, unsafe_allow_html=True)
+        st.caption("🖍️ AI 初审文字标注（只有疑似有误的片段才会被标色，仅供参考）")
+        for block in blocks:
+            st.markdown(block, unsafe_allow_html=True)
+
+    def _render_ai_review_panel(self, group):
+        """B 区底部：AI 初审结论 + 问题明细 + 完整 JSON 呈现。
+        兼容旧格式(final_report.csv: true/false)与新格式(质检结果.csv: 合格/不合格)。"""
+        qa_df = st.session_state.get('qa_df')
+        if qa_df is None or getattr(qa_df, 'empty', True):
+            st.caption("ℹ️ 当前未加载质检表，或内容为空。")
+            _src = st.session_state.get('qa_source', '')
+            if _src:
+                st.caption(f"（{_src}）")
+            return
+        if '所在文件夹(ID)' not in qa_df.columns:
+            st.warning("⚠️ 已加载数据源，但未找到列名：`所在文件夹(ID)`。请检查表头是否匹配。")
+            return
+
+        ai_rec = get_ai_record(qa_df, str(group['id']))
+        if ai_rec is None:
+            st.info("ℹ️ 质检表中未找到当前 ID 的对应数据。")
+            return
+
+        level, label = normalize_conclusion(ai_rec.get('质检结论'))
+        reason = str(ai_rec.get('拒绝原因分析') or '').strip()
+        json_data = parse_json_output(ai_rec.get('JSON_Output'))
+        issues = collect_json_issues(json_data)
+
+        if level == 'pass':
+            st.success("🤖 **AI 初审：通过** ✅（仅供参考，不影响验收结果）")
+        elif level == 'fail':
+            st.error("🤖 **AI 初审：不通过** ✗（仅供参考，不影响验收结果）")
+        elif level == 'modified':
+            st.info(f"🤖 **AI 初审：{label}**（仅供参考，不影响验收结果）")
+        elif level == 'warn':
+            st.warning("🤖 **AI 初审：模型输出异常**（初审详情无法解析，请人工重点复核）")
         else:
-            if qa_df.empty:
-                st.caption("ℹ️ 当前未加载质检表，或内容为空。")
-            else:
-                st.warning("⚠️ 已加载数据源，但未找到列名：`所在文件夹(ID)`。请检查表头是否匹配。")
+            st.info(f"🤖 **AI 初审：{label}**（仅供参考，不影响验收结果）")
+
+        reasons = split_reasons(reason)
+        if reasons:
+            st.markdown("**📌 拒绝原因分析：**")
+            for r in reasons:
+                st.markdown(f"- {r}")
+
+        if issues:
+            with st.expander(f"📋 初审问题明细（{len(issues)} 项）", expanded=True):
+                for i, iss in enumerate(issues, 1):
+                    itype = str(iss.get('type') or '未分类')
+                    desc = str(iss.get('desc') or iss.get('reason') or '').strip()
+                    sug = str(iss.get('suggestion') or '').strip()
+                    st.markdown(f"**{i}. [{itype}]** {desc}")
+                    if sug:
+                        st.caption(f"💡 建议：{sug}")
+                    if (iss.get('original_fragment') or '') != '':
+                        st.caption(f"🗂 原文片段：`{iss.get('original_fragment')}`")
+
+        st.markdown("**🧾 AI 初审 JSON 数据：**")
+        if json_data:
+            st.json(json_data)
+        else:
+            st.caption("该行 JSON_Output 为空或格式异常，无法展开。")
+            raw_json = str(ai_rec.get('JSON_Output') or '').strip()
+            if raw_json:
+                st.code(raw_json, language='json')

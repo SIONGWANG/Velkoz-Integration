@@ -3,9 +3,15 @@
   "folder_pattern": {
     "blocks": [
       {
+        "rule": "literal",
+        "count": 2,
+        "label": "样本ID",
+        "value": "JD"
+      },
+      {
         "rule": "digits",
-        "count": 8,
-        "label": "样本ID"
+        "count": 6,
+        "label": ""
       }
     ]
   },

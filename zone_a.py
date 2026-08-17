@@ -2,7 +2,11 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
+from ai_review import build_ai_badge_map
 from disk_io import preload_next_images
+
+# AI 初审标记（仅用于呈现，绝不参与验收结果判定）
+_AI_BADGE_EMOJI = {'pass': '🤖✓', 'fail': '🤖✗', 'modified': '🤖🟦', 'pending': '🤖🟡', 'warn': '🤖⚠️'}
 
 
 class ZoneAMixin:
@@ -69,15 +73,22 @@ class ZoneAMixin:
 
             id_to_group = {g['id']: g for g in groups}
 
+            # AI 初审标记表（只读展示，不影响验收）
+            ai_badge_map = build_ai_badge_map(st.session_state.get('qa_df'), all_ids)
+            if ai_badge_map:
+                st.caption("🤖 = AI 初审：✓通过　✗不通过（仅预览，不作为验收依据）")
+
             def _fmt(item_id):
                 s = status_map.get(str(item_id), '')
                 emoji = {'合格': '🟢', '修改后合格': '🔵', '不合格': '🔴', '待定': '🟡'}.get(s, '⚪')
                 group = id_to_group.get(item_id, {})
+                ai_level = ai_badge_map.get(str(item_id))
+                ai_badge = _AI_BADGE_EMOJI.get(ai_level, '')
                 user_name = group.get('user_name', '未知')
                 if user_name and user_name != '未知':
                     display_name = user_name if len(user_name) <= 6 else user_name[:5] + '…'
-                    return f"{emoji} {item_id}  \u00b7 {display_name}"
-                return f"{emoji} {item_id}"
+                    return f"{emoji} {item_id}{(' ' + ai_badge) if ai_badge else ''}  \u00b7 {display_name}"
+                return f"{emoji} {item_id}{(' ' + ai_badge) if ai_badge else ''}"
 
             if st.session_state.current_id not in all_ids: st.session_state.current_id = all_ids[0]
 
