@@ -7,7 +7,7 @@ import datetime
 import logging
 import time
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageOps
 from io import BytesIO
 
 from utils import (
@@ -206,6 +206,15 @@ def get_display_image_bytes(img_path):
         placeholder.save(buf, format="JPEG", quality=60)
         return buf.getvalue(), "加载失败"
     img, res_str = resize_image_for_display(img)
+    if img.mode in ("RGBA", "LA", "PA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "PA":
+            img = img.convert("RGBA")
+        background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+    img = ImageOps.expand(img, border=2, fill=(180, 180, 180))
     buf = BytesIO()
     img.save(buf, format="JPEG", quality=DISPLAY_JPEG_QUALITY)
     img_bytes = buf.getvalue()

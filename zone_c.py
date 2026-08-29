@@ -316,7 +316,6 @@ class ZoneCMixin:
                 )
 
                 if success:
-                    st.session_state[pool_key] = []
                     if save_msg:
                         st.toast(save_msg, icon="⚠️")
                     if is_save:
