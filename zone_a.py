@@ -67,10 +67,12 @@ class ZoneAMixin:
                     st.session_state.search_results = []
                     st.session_state.search_id_input = ""
                     st.session_state.search_tag_select = "全部"
+                    st.session_state.search_text_input = ""
 
                 with st.form(key="search_form", clear_on_submit=False):
                     search_id = st.text_input("编号", placeholder="输入编号，如 003", key="search_id_input")
                     search_tag = st.selectbox("错误标签", all_tag_options, key="search_tag_select")
+                    search_text = st.text_input("自由匹配", placeholder="输入编号或标签关键词", key="search_text_input")
                     sc1, sc2 = st.columns(2)
                     with sc1:
                         search_submitted = st.form_submit_button("🔎 查询", use_container_width=True)
@@ -83,10 +85,11 @@ class ZoneAMixin:
 
                 if search_submitted:
                     from search_service import search_items
+                    df = self._get_df() if hasattr(self, '_get_df') else None
                     results = search_items(
                         st.session_state.data_groups,
-                        search_id, search_tag,
-                        st.session_state.selected_tags,
+                        search_id, search_tag, search_text,
+                        df=df,
                         status_map=current_status_map,
                     )
                     st.session_state.search_results = results
