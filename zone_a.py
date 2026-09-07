@@ -57,6 +57,62 @@ class ZoneAMixin:
                             pass
             filter_val = st.session_state.get('filter_pills', '全部')
 
+            # ── 快速查询 ──
+            with st.expander("🔍 快速查询", expanded=False):
+                tags_data = st.session_state.custom_tags
+                all_tag_options = ["全部"] + tags_data.get("tags", [])
+
+                # 处理清空操作（通过 flag 延迟重置，避免 widget 值冲突）
+                if st.session_state.pop("_search_clear_pending", False):
+                    st.session_state.search_results = []
+                    st.session_state.search_id_input = ""
+                    st.session_state.search_tag_select = "全部"
+
+                with st.form(key="search_form", clear_on_submit=False):
+                    search_id = st.text_input("编号", placeholder="输入编号，如 003", key="search_id_input")
+                    search_tag = st.selectbox("错误标签", all_tag_options, key="search_tag_select")
+                    sc1, sc2 = st.columns(2)
+                    with sc1:
+                        search_submitted = st.form_submit_button("🔎 查询", use_container_width=True)
+                    with sc2:
+                        clear_submitted = st.form_submit_button("🗑️ 清空", use_container_width=True)
+
+                if clear_submitted:
+                    st.session_state._search_clear_pending = True
+                    st.rerun()
+
+                if search_submitted:
+                    from search_service import search_items
+                    results = search_items(
+                        st.session_state.data_groups,
+                        search_id, search_tag,
+                        st.session_state.selected_tags,
+                        status_map=current_status_map,
+                    )
+                    st.session_state.search_results = results
+
+                search_results = st.session_state.get("search_results", [])
+                if search_results:
+                    st.caption(f"找到 {len(search_results)} 条")
+                    status_emoji = {'合格': '🟢', '修改后合格': '🔵', '不合格': '🔴', '待定': '🟡'}
+                    for item in search_results:
+                        emoji = status_emoji.get(item['status'], '⚪')
+                        tags_str = f"  ({', '.join(item['tags'])})" if item['tags'] else ""
+                        if st.button(f"{emoji} {item['id']}{tags_str}", key=f"_qr_{item['id']}", use_container_width=True):
+                            st.session_state.current_id = item['id']
+                            st.session_state.focus_img_idx = 0
+                            st.session_state.needs_scroll_top = True
+                            all_groups = st.session_state.get('data_groups', [])
+                            all_ids_qr = [g['id'] for g in all_groups]
+                            if item['id'] in all_ids_qr:
+                                preload_next_images(all_ids_qr.index(item['id']), all_groups)
+                            try:
+                                st.rerun(scope="app")
+                            except TypeError:
+                                st.rerun()
+                elif search_submitted:
+                    st.info("未找到匹配数据")
+
             filtered_ids = self._get_filtered_ids(current_status_map)
 
             if not filtered_ids:
