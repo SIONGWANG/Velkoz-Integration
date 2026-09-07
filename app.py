@@ -218,6 +218,8 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 with st.container(border=True):
                     self._render_datasource_loader()
 
+                self._render_excel_importer()
+
                 with st.expander("⚙️ 更多设置", expanded=False):
                     self._render_settings_panel(key_prefix="cs_", show_operator=True)
         else:

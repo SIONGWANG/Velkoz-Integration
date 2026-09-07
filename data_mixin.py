@@ -282,6 +282,11 @@ class DataMixin:
         st.session_state._batch_completed = False
         st.session_state._completion_balloons_shown = False
         st.session_state.annotator_inclusion = {}
+        st.session_state._import_done = False
+        st.session_state._import_df = None
+        st.session_state._import_preview = None
+        st.session_state._import_summary = None
+        st.session_state._import_uploader_key = None
         st.session_state.show_export_confirm = False
         st.session_state._pending_export_stats = {}
         st.session_state.annotator_map = {}
