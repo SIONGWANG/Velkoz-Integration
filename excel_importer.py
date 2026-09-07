@@ -37,7 +37,6 @@ def parse_excel(uploaded_file):
 
     df["图片ID"] = df["图片ID"].astype(str).str.strip()
     df = df[df["图片ID"].notna() & (df["图片ID"] != "") & (df["图片ID"] != "nan")]
-    df = df.drop_duplicates(subset=["图片ID"], keep="last").reset_index(drop=True)
 
     if "结果" in df.columns:
         df["结果"] = df["结果"].astype(str).str.strip()
@@ -72,9 +71,11 @@ def build_import_preview(df_excel, data_groups, current_csv_df=None):
     excel_duplicate_ids = [eid for eid, cnt in excel_id_counts.items() if cnt > 1]
     current_duplicate_ids = [cid for cid, cnt in current_id_counts.items() if cnt > 1]
 
+    # Build lookup using last occurrence per ID (duplicates → last wins)
     excel_lookup = {}
     for _, row in df_excel.iterrows():
-        excel_lookup[str(row["图片ID"])] = row.to_dict()
+        eid = str(row["图片ID"])
+        excel_lookup[eid] = row.to_dict()
 
     matched = []
     unmatched_current = []
@@ -91,7 +92,8 @@ def build_import_preview(df_excel, data_groups, current_csv_df=None):
 
     for cid in current_ids:
         if cid in excel_duplicate_ids:
-            duplicates.append({"id": cid, "reason": "Excel中存在重复ID"})
+            # Use last occurrence but report duplicate
+            duplicates.append({"id": cid, "reason": f"Excel中存在 {excel_id_counts[cid]} 条重复ID，使用最后一条"})
             continue
         if cid not in excel_id_set:
             unmatched_current.append({"id": cid})
@@ -116,8 +118,8 @@ def build_import_preview(df_excel, data_groups, current_csv_df=None):
             "existing_result": str(existing_record.get("结果", "")).strip() if has_existing else "",
         })
 
-    for eid in excel_ids:
-        if eid not in current_id_set and eid not in excel_duplicate_ids:
+    for eid in excel_id_set:
+        if eid not in current_id_set:
             orphan_excel.append({"id": eid, "result": str(excel_lookup[eid].get("结果", "")).strip()})
 
     overwrite_count = sum(1 for m in matched if m["overwrite"])

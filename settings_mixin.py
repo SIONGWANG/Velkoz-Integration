@@ -521,132 +521,147 @@ class SettingsMixin:
             st.session_state.annotator_confirm_enabled = confirm_enabled
             self._save_settings()
 
-    def _render_excel_importer(self):
-        """质检记录恢复：上传历史质检 Excel，匹配后恢复到当前数据"""
+    def _render_excel_importer(self, embedded=False):
+        """质检记录恢复：上传历史质检 Excel，匹配后恢复到当前数据
+        Args:
+            embedded: True 时省略外层 expander（用于嵌套在"更多设置"内）
+        """
         from excel_importer import parse_excel, build_import_preview, apply_restore
 
         data_loaded = bool(st.session_state.get("data_groups"))
         has_imported = st.session_state.get("_import_done", False)
 
-        with st.expander("📥 质检记录恢复", expanded=False):
-            st.caption("如果你有以前导出的质检记录 Excel，可以在这里恢复历史质检结果。")
-            st.caption("仅用于恢复历史质检结果，不是原始数据。")
+        if embedded:
+            self._render_excel_importer_body(data_loaded, has_imported)
+        else:
+            with st.expander("📥 质检记录恢复", expanded=False):
+                st.caption("如果你有以前导出的质检记录 Excel，可以在这里恢复历史质检结果。")
+                st.caption("仅用于恢复历史质检结果，不是原始数据。")
+                self._render_excel_importer_body(data_loaded, has_imported)
 
-            if not data_loaded and not has_imported:
-                st.info("请先加载当前数据，再恢复质检记录。")
+    def _render_excel_importer_body(self, data_loaded, has_imported):
+        """Excel 导入器内部逻辑（不含外层 expander）"""
+        from excel_importer import parse_excel, build_import_preview, apply_restore
 
-            uploaded = st.file_uploader(
-                "上传质检记录 Excel",
-                type=["xlsx"],
-                key="_import_excel_uploader",
-                help="请上传以前导出的质检记录 Excel。程序会根据唯一ID与当前已加载数据进行匹配。Excel中不存在于当前数据的记录不会进入当前质检队列。"
-            )
+        if not data_loaded and not has_imported:
+            st.info("请先加载当前数据，再恢复质检记录。")
 
-            if uploaded and data_loaded:
-                file_size = uploaded.size
-                if file_size < 1024:
-                    size_str = f"{file_size} B"
-                elif file_size < 1024 * 1024:
-                    size_str = f"{file_size / 1024:.1f} KB"
-                else:
-                    size_str = f"{file_size / 1024 / 1024:.1f} MB"
-                st.caption(f"文件：{uploaded.name}（{size_str}）")
+        uploaded = st.file_uploader(
+            "上传质检记录 Excel",
+            type=["xlsx"],
+            key="_import_excel_uploader",
+            help="请上传以前导出的质检记录 Excel。程序会根据唯一ID与当前已加载数据进行匹配。Excel中不存在于当前数据的记录不会进入当前质检队列。"
+        )
 
-                if st.session_state.get("_import_uploader_key") != uploaded.name:
-                    st.session_state["_import_uploader_key"] = uploaded.name
-                    st.session_state["_import_df"] = None
-                    st.session_state["_import_preview"] = None
-                    st.session_state["_import_done"] = False
-                    st.session_state["_import_summary"] = None
+        if uploaded and data_loaded:
+            file_size = uploaded.size
+            if file_size < 1024:
+                size_str = f"{file_size} B"
+            elif file_size < 1024 * 1024:
+                size_str = f"{file_size / 1024:.1f} KB"
+            else:
+                size_str = f"{file_size / 1024 / 1024:.1f} MB"
+            st.caption(f"文件：{uploaded.name}（{size_str}）")
 
-                if st.session_state.get("_import_df") is None:
-                    with st.spinner("正在分析质检记录..."):
-                        df_excel, err = parse_excel(uploaded)
-                        if err:
-                            st.error(err)
-                            return
-                        st.session_state["_import_df"] = df_excel
-                        st.session_state["_import_file_name"] = uploaded.name
+            if st.session_state.get("_import_uploader_key") != uploaded.name:
+                st.session_state["_import_uploader_key"] = uploaded.name
+                st.session_state["_import_df"] = None
+                st.session_state["_import_preview"] = None
+                st.session_state["_import_done"] = False
+                st.session_state["_import_summary"] = None
 
-                df_excel = st.session_state.get("_import_df")
-                if df_excel is None:
-                    return
+            if st.session_state.get("_import_df") is None:
+                with st.spinner("正在分析质检记录..."):
+                    df_excel, err = parse_excel(uploaded)
+                    if err:
+                        st.error(err)
+                        return
+                    st.session_state["_import_df"] = df_excel
+                    st.session_state["_import_file_name"] = uploaded.name
 
-                current_csv_df = self._get_df() if hasattr(self, "_get_df") else None
-                data_groups = st.session_state.get("data_groups", [])
+            df_excel = st.session_state.get("_import_df")
+            if df_excel is None:
+                return
 
-                if st.session_state.get("_import_preview") is None:
-                    preview = build_import_preview(df_excel, data_groups, current_csv_df)
-                    preview["file_name"] = uploaded.name
-                    st.session_state["_import_preview"] = preview
+            current_csv_df = self._get_df() if hasattr(self, "_get_df") else None
+            data_groups = st.session_state.get("data_groups", [])
 
-                preview = st.session_state.get("_import_preview")
-                if not preview:
-                    return
+            if st.session_state.get("_import_preview") is None:
+                preview = build_import_preview(df_excel, data_groups, current_csv_df)
+                preview["file_name"] = uploaded.name
+                st.session_state["_import_preview"] = preview
 
-                st.divider()
-                st.markdown("**📋 质检记录恢复预览**")
+            preview = st.session_state.get("_import_preview")
+            if not preview:
+                return
+
+            st.divider()
+            st.markdown("**📋 质检记录恢复预览**")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("当前数据", f"{preview['total_current']} 条")
+                st.metric("匹配成功", f"{preview['total_matched']} 条")
+                st.metric("Excel孤立记录", f"{preview['total_orphan']} 条")
+            with c2:
+                st.metric("Excel记录", f"{preview['total_excel']} 条")
+                st.metric("保持原状态", f"{preview['total_unmatched_current']} 条")
+                st.metric("异常记录", f"{preview['total_duplicates'] + preview['total_anomalies']} 条")
+
+            if preview["overwrite_count"] > 0:
+                st.warning(f"⚠️ 将覆盖已有质检：{preview['overwrite_count']} 条")
+
+            if preview["total_orphan"] > 0:
+                with st.expander(f"📎 Excel孤立记录（{preview['total_orphan']} 条）", expanded=False):
+                    orphan_ids = [item["id"] for item in preview["orphan_excel"]]
+                    for oid in orphan_ids[:50]:
+                        st.text(oid)
+                    if len(orphan_ids) > 50:
+                        st.caption(f"... 还有 {len(orphan_ids) - 50} 条")
+
+            if preview["total_duplicates"] + preview["total_anomalies"] > 0:
+                with st.expander(f"⚠️ 异常记录（{preview['total_duplicates'] + preview['total_anomalies']} 条）", expanded=False):
+                    for item in preview["duplicates"]:
+                        st.text(f"{item['id']}  —  {item['reason']}")
+                    for item in preview["anomalies"]:
+                        st.text(f"{item['id']}  —  {item['reason']}")
+
+            if not has_imported:
+                if preview["overwrite_count"] > 0:
+                    st.warning(f"确认后，Excel中匹配到的历史质检结果将写入当前数据；如果当前已有相同ID的质检结果，将被Excel中的结果覆盖。")
+                if st.button("✅ 确认恢复", type="primary", use_container_width=True, key="_import_confirm_btn"):
+                    csv_path = self.get_csv_filename() if hasattr(self, "get_csv_filename") else None
+                    if not csv_path:
+                        st.error("未找到当前 CSV 路径")
+                        return
+                    current_csv = self._get_df() if hasattr(self, "_get_df") else None
+                    summary, err = apply_restore(preview, data_groups, current_csv, csv_path)
+                    if err:
+                        st.error(err)
+                        return
+                    summary["file_name"] = uploaded.name
+                    st.session_state["_import_done"] = True
+                    st.session_state["_import_summary"] = summary
+                    # Clear all CSV caches to force fresh read
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("_df_cache_") or k.startswith("_df_lookup_"):
+                            del st.session_state[k]
+                    # Force sync_state_from_history to re-run for current image
+                    st.session_state["last_loaded_id"] = None
+                    st.rerun()
+            else:
+                summary = st.session_state.get("_import_summary", {})
+                st.success("✅ 质检记录恢复完成")
+                st.caption(f"文件：{summary.get('file_name', '')}")
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric("当前数据", f"{preview['total_current']} 条")
-                    st.metric("匹配成功", f"{preview['total_matched']} 条")
-                    st.metric("Excel孤立记录", f"{preview['total_orphan']} 条")
+                    st.metric("当前数据", f"{summary.get('total_current', 0)} 条")
+                    st.metric("成功恢复", f"{summary.get('restored', 0)} 条")
+                    st.metric("Excel孤立记录", f"{summary.get('orphan', 0)} 条")
                 with c2:
-                    st.metric("Excel记录", f"{preview['total_excel']} 条")
-                    st.metric("保持原状态", f"{preview['total_unmatched_current']} 条")
-                    st.metric("异常记录", f"{preview['total_duplicates'] + preview['total_anomalies']} 条")
-
-                if preview["overwrite_count"] > 0:
-                    st.warning(f"⚠️ 将覆盖已有质检：{preview['overwrite_count']} 条")
-
-                if preview["total_orphan"] > 0:
-                    with st.expander(f"📎 Excel孤立记录（{preview['total_orphan']} 条）", expanded=False):
-                        orphan_ids = [item["id"] for item in preview["orphan_excel"]]
-                        for oid in orphan_ids[:50]:
-                            st.text(oid)
-                        if len(orphan_ids) > 50:
-                            st.caption(f"... 还有 {len(orphan_ids) - 50} 条")
-
-                if preview["total_duplicates"] + preview["total_anomalies"] > 0:
-                    with st.expander(f"⚠️ 异常记录（{preview['total_duplicates'] + preview['total_anomalies']} 条）", expanded=False):
-                        for item in preview["duplicates"]:
-                            st.text(f"{item['id']}  —  {item['reason']}")
-                        for item in preview["anomalies"]:
-                            st.text(f"{item['id']}  —  {item['reason']}")
-
-                if not has_imported:
-                    if preview["overwrite_count"] > 0:
-                        st.warning(f"确认后，Excel中匹配到的历史质检结果将写入当前数据；如果当前已有相同ID的质检结果，将被Excel中的结果覆盖。")
-                    if st.button("✅ 确认恢复", type="primary", use_container_width=True, key="_import_confirm_btn"):
-                        csv_path = self.get_csv_filename() if hasattr(self, "get_csv_filename") else None
-                        if not csv_path:
-                            st.error("未找到当前 CSV 路径")
-                            return
-                        current_csv = self._get_df() if hasattr(self, "_get_df") else None
-                        summary, err = apply_restore(preview, data_groups, current_csv, csv_path)
-                        if err:
-                            st.error(err)
-                            return
-                        summary["file_name"] = uploaded.name
-                        st.session_state["_import_done"] = True
-                        st.session_state["_import_summary"] = summary
-                        st.session_state.pop("_df_cache_" + csv_path, None)
-                        st.session_state.pop("_df_lookup_" + csv_path, None)
-                        st.rerun()
-                else:
-                    summary = st.session_state.get("_import_summary", {})
-                    st.success("✅ 质检记录恢复完成")
-                    st.caption(f"文件：{summary.get('file_name', '')}")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.metric("当前数据", f"{summary.get('total_current', 0)} 条")
-                        st.metric("成功恢复", f"{summary.get('restored', 0)} 条")
-                        st.metric("Excel孤立记录", f"{summary.get('orphan', 0)} 条")
-                    with c2:
-                        st.metric("Excel记录", f"{summary.get('total_excel', 0)} 条")
-                        st.metric("保持原状态", f"{summary.get('unmatched_current', 0)} 条")
-                        st.metric("异常记录", f"{summary.get('duplicates', 0) + summary.get('anomalies', 0)} 条")
-                    st.info("恢复的数据已经进入正常质检流程，可以继续修改和提交。")
+                    st.metric("Excel记录", f"{summary.get('total_excel', 0)} 条")
+                    st.metric("保持原状态", f"{summary.get('unmatched_current', 0)} 条")
+                    st.metric("异常记录", f"{summary.get('duplicates', 0) + summary.get('anomalies', 0)} 条")
+                st.info("恢复的数据已经进入正常质检流程，可以继续修改和提交。")
 
     @staticmethod
     def _clear_sr_widget_keys():
@@ -1089,6 +1104,8 @@ class SettingsMixin:
             st.divider()
             st.caption("📂 数据源")
             self._render_datasource_loader()
+            st.divider()
+            self._render_excel_importer(embedded=True)
 
         st.divider()
         self._render_view_mode_toggle()
