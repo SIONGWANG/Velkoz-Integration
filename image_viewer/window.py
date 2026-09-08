@@ -5,11 +5,12 @@
 """
 import os
 
-from PySide6.QtCore import Qt, QRectF, QSize
-from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction
+from PySide6.QtCore import Qt, QRectF, QSize, QPointF, QPoint
+from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QStatusBar, QLabel, QToolBar, QApplication, QStyle,
+    QGraphicsRectItem, QStatusBar, QLabel, QToolBar, QApplication, QStyle,
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QFileDialog,
 )
 
 from . import protocol
@@ -49,9 +50,22 @@ class ImageCanvas(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self._item = QGraphicsPixmapItem()
         self._scene.addItem(self._item)
+        # 截图框选覆盖层（虚线高亮）
+        self._sel_item = QGraphicsRectItem()
+        pen = QPen(QColor("#8b5cf6"), 2, Qt.DashLine)
+        self._sel_item.setPen(pen)
+        self._sel_item.setBrush(QBrush(QColor(99, 102, 241, 50)))
+        self._sel_item.setZValue(100)
+        self._sel_item.setVisible(False)
+        self._scene.addItem(self._sel_item)
         self.setScene(self._scene)
         self.setAcceptDrops(False)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+
+        # 截图模式状态
+        self._capture_mode = False
+        self._sel_start = None       # 场景坐标（QPointF）
+        self._sel_rect = None        # 最终框选（原图坐标系 QRect）
         # 自适应渲染质量，初始为平滑（缩小时）
         self._apply_quality()
 
@@ -118,7 +132,7 @@ class ImageCanvas(QGraphicsView):
         self.scale(factor, factor)
         self._notify_status()
 
-    # ── 事件：滚轮缩放 / 右键平移 ──
+    # ── 事件：滚轮缩放 / 右键平移 / 截图框选 ──
     def wheelEvent(self, event):
         delta = event.angleDelta().y()
         if delta > 0:
@@ -132,6 +146,15 @@ class ImageCanvas(QGraphicsView):
             self._panning = True
             self._last_pos = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        if self._capture_mode and event.button() == Qt.LeftButton:
+            # 进入截图框选：记录起点（场景坐标）
+            self._sel_start = self.mapToScene(event.pos())
+            self._sel_rect = None
+            self._sel_item.setVisible(True)
+            self._update_sel_rect(event.pos())
+            self.setCursor(Qt.CrossCursor)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -148,6 +171,10 @@ class ImageCanvas(QGraphicsView):
             )
             event.accept()
             return
+        if self._capture_mode and self._sel_start is not None:
+            self._update_sel_rect(event.pos())
+            event.accept()
+            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -156,7 +183,56 @@ class ImageCanvas(QGraphicsView):
             self.setCursor(Qt.OpenHandCursor)
             event.accept()
             return
+        if self._capture_mode and event.button() == Qt.LeftButton and self._sel_start is not None:
+            rect = self._current_sel_image_rect()
+            self._sel_start = None
+            self.setCursor(Qt.CrossCursor)
+            if rect is None or rect.isNull():
+                self._sel_item.setVisible(False)
+                self._sel_item.setRect(QRectF())
+                self._owner.statusBar().showMessage("截图框选过小，已取消。", 5000)
+                event.accept()
+                return
+            self._sel_item.setVisible(False)
+            self._sel_item.setRect(QRectF())
+            event.accept()
+            # 交给窗口执行裁剪 -> 预览 -> 保存
+            self._owner.on_capture(rect)
+            return
         super().mouseReleaseEvent(event)
+
+    def _update_sel_rect(self, view_pos):
+        """在场景中绘制当前拖拽框（视图坐标 -> 场景坐标）。"""
+        if self._sel_start is None:
+            return
+        cur = self.mapToScene(view_pos)
+        rect = QRectF(self._sel_start, cur).normalized()
+        self._sel_item.setRect(rect)
+
+    def _current_sel_image_rect(self):
+        """当前框选（场景坐标）换算成原图坐标系 QRect。"""
+        if self._sel_item.rect().isNull():
+            return None
+        from . import capture
+        if self._sel_start is None:
+            return None
+        # 直接以场景坐标矩形裁剪即可，场景坐标 == 原图坐标
+        r = self._sel_item.rect().normalized()
+        return capture.clamp_rect_to_image(r, self._image_size[0], self._image_size[1])
+
+    # ── 截图模式开关 ──
+    def set_capture_mode(self, on):
+        self._capture_mode = bool(on)
+        if self._capture_mode:
+            self._sel_item.setVisible(False)
+            self.setCursor(Qt.CrossCursor)
+        else:
+            self._sel_item.setVisible(False)
+            self._sel_item.setRect(QRectF())
+            self.setCursor(Qt.OpenHandCursor)
+
+    def is_capture_mode(self):
+        return self._capture_mode
 
     def _notify_status(self):
         self._apply_quality()
@@ -301,6 +377,15 @@ class ImageViewerWindow(QMainWindow):
         self.act_100.triggered.connect(self.canvas.set_100)
         tb.addAction(self.act_100)
 
+        tb.addSeparator()
+
+        # 截图：框选原图区域 -> 从原图裁剪
+        self.act_capture = QAction(style.standardIcon(QStyle.SP_DialogSaveButton), "🖼️ 截图", self)
+        self.act_capture.setToolTip("截图：框选区域，从原图裁剪（不从屏幕截图）")
+        self.act_capture.setCheckable(True)
+        self.act_capture.toggled.connect(self._on_capture_toggle)
+        tb.addAction(self.act_capture)
+
         self.act_quit = QAction("✕ 关闭 (Esc)", self)
         self.act_quit.setShortcut("Esc")
         self.act_quit.triggered.connect(self.close)
@@ -408,6 +493,117 @@ class ImageViewerWindow(QMainWindow):
     def set_current_index(self, index):
         self._current = int(index)
         self._load_current()
+
+    # ── 截图：框选 -> 预览 -> 保存 ──
+    def _on_capture_toggle(self, checked):
+        if checked:
+            # 有图才允许截图
+            if not self.canvas.can_load():
+                self.act_capture.blockSignals(True)
+                self.act_capture.setChecked(False)
+                self.act_capture.blockSignals(False)
+                self.statusBar().showMessage("当前没有可截图的图片。", 5000)
+                return
+            self.canvas.set_capture_mode(True)
+            self.setCursor(Qt.CrossCursor)
+            self.statusBar().showMessage("截图模式：按住左键框选要截取的原图区域。", 6000)
+        else:
+            self.canvas.set_capture_mode(False)
+            self.setCursor(Qt.OpenHandCursor)
+
+    def on_capture(self, image_rect):
+        """画布框选完成后回调：从原图裁剪 -> 预览 -> 保存。"""
+        from . import capture
+        # 退出截图模式（按钮取消选中）
+        if self.act_capture.isChecked():
+            self.act_capture.blockSignals(True)
+            self.act_capture.setChecked(False)
+            self.act_capture.blockSignals(False)
+        self.canvas.set_capture_mode(False)
+        self.setCursor(Qt.OpenHandCursor)
+
+        if not self.canvas.can_load():
+            return
+        pm = self.canvas._item.pixmap()   # 原始 pixmap（未缩放）
+        cropped, err = capture.crop_from_pixmap(pm, image_rect)
+        if cropped is None:
+            self.statusBar().showMessage(err or "裁剪失败。", 6000)
+            return
+        self._capture_preview(cropped, image_rect)
+
+    def _capture_preview(self, cropped, image_rect):
+        """截图预览对话框：显示裁剪结果 + 保存 / 重新截图 / 取消。"""
+        dlg = QDialog(self)
+        dlg.setWindowIcon(branding.make_app_icon())
+        dlg.setWindowTitle("截图预览")
+        dlg.setMinimumSize(480, 420)
+        lay = QVBoxLayout(dlg)
+
+        info = QLabel(f"原图选区：x={image_rect.x()}  y={image_rect.y()}  "
+                      f"w={image_rect.width()}  h={image_rect.height()}  "
+                      f"({image_rect.width()}×{image_rect.height()}px)")
+        info.setStyleSheet("color:#e8e8e8;padding:4px 0;")
+        lay.addWidget(info)
+
+        from PySide6.QtWidgets import QLabel as L
+        img_lbl = L()
+        img_lbl.setMinimumSize(420, 320)
+        img_lbl.setStyleSheet("background:#121218;border-radius:6px;")
+        import PySide6.QtCore as QC
+        scaled = cropped
+        max_w, max_h = 440, 320
+        if scaled.width() > max_w or scaled.height() > max_h:
+            scaled = cropped.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        img_lbl.setPixmap(scaled)
+        lay.addWidget(img_lbl, 1)
+        lay.addWidget(L(f"裁剪来源：直接从原图数据裁剪，非屏幕截图。"), 0)
+
+        btns = QHBoxLayout()
+        save_btn = QPushButton("💾 保存截图")
+        save_btn.setStyleSheet("background:#6366f1;color:white;font-weight:600;border-radius:5px;padding:6px 14px;")
+        recapture_btn = QPushButton("↺ 重新截图")
+        recapture_btn.setStyleSheet("background:#2b2b2d;color:#e8e8e8;border-radius:5px;padding:6px 14px;")
+        cancel_btn = QPushButton("✕ 取消")
+        cancel_btn.setStyleSheet("background:#2b2b2d;color:#e8e8e8;border-radius:5px;padding:6px 14px;")
+        btns.addWidget(save_btn)
+        btns.addWidget(recapture_btn)
+        btns.addStretch()
+        btns.addWidget(cancel_btn)
+        lay.addLayout(btns)
+
+        saved_path = {"v": None}
+
+        def do_save():
+            from . import capture as cap
+            # 保存到用户捕获目录
+            cap_dir = cap.default_capture_dir()
+            os.makedirs(cap_dir, exist_ok=True)
+            sample_id = self._cmd.get("sample_id", "") or os.path.basename(self._images[self._current]) if self._images else "capture"
+            base = os.path.join(cap_dir, str(sample_id))
+            path, err = cap.save_capture(cropped, base)
+            if err:
+                QMessageBox.warning(dlg, "保存失败", err)
+            else:
+                saved_path["v"] = path
+                dlg.accept()
+
+        def do_again():
+            dlg.accept()
+            # 重新进入截图模式
+            self.act_capture.blockSignals(True)
+            self.act_capture.setChecked(True)
+            self.act_capture.blockSignals(False)
+            self._on_capture_toggle(True)
+
+        save_btn.clicked.connect(do_save)
+        recapture_btn.clicked.connect(do_again)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        exec_res = dlg.exec()
+        if saved_path["v"]:
+            self.statusBar().showMessage(
+                f"✅ 截图已保存：{os.path.basename(saved_path['v'])}（{image_rect.width()}×{image_rect.height()}px）",
+                8000)
 
     def bring_to_front(self):
         self.show()
