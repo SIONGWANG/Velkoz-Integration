@@ -5,7 +5,7 @@
 """
 import os
 
-from PySide6.QtCore import Qt, QRectF, QSize, QPointF, QPoint
+from PySide6.QtCore import Qt, QRectF, QRect, QSize, QPointF, QPoint
 from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
@@ -67,6 +67,7 @@ class ImageCanvas(QGraphicsView):
         self._mode = "view"
         self._sel_start = None       # 视图/场景坐标起点
         self._sel_rect = None        # 框选/标注构建结果
+        self._capture_dragged = False  # 截图时是否真的拖动过（区分"点击截全图/拖动截选区"）
         # 标注实时预览（场景坐标，用 ImageCanvas 绘制）
         self._draw_preview = None    # (type, points) 进行中的标注
         # 自适应渲染质量，初始为平滑（缩小时）
@@ -201,6 +202,7 @@ class ImageCanvas(QGraphicsView):
         if self._mode == "capture":
             self._sel_start = self.mapToScene(event.pos())
             self._sel_rect = None
+            self._capture_dragged = False
             self._sel_item.setVisible(True)
             self._update_sel_rect(event.pos())
             self.setCursor(Qt.CrossCursor)
@@ -221,6 +223,11 @@ class ImageCanvas(QGraphicsView):
 
     def _on_left_drag(self, event):
         if self._mode == "capture":
+            # 拖动超过阈值即视为"框选区域"，否则视为"点击截全图"
+            if self._sel_start is not None:
+                cur = self.mapToScene(event.pos())
+                if (cur - self._sel_start).manhattanLength() > 4:
+                    self._capture_dragged = True
             self._update_sel_rect(event.pos())
             return
         if self._mode == "draw" and self._draw_preview is not None:
@@ -239,16 +246,25 @@ class ImageCanvas(QGraphicsView):
 
     def _on_left_release(self, event):
         if self._mode == "capture":
-            rect = self._current_sel_image_rect()
+            was_dragged = self._capture_dragged
             self._sel_start = None
+            self._capture_dragged = False
             self.setCursor(Qt.CrossCursor)
-            if rect is None or rect.isNull():
-                self._sel_item.setVisible(False)
-                self._sel_item.setRect(QRectF())
-                self._owner.statusBar().showMessage("截图框选过小，已取消。", 5000)
-                return
+            rect = None
+            if was_dragged:
+                rect = self._current_sel_image_rect()
+            else:
+                # 点击（未拖动）→ 截取整张图片
+                if self._image_size[0] > 0 and self._image_size[1] > 0:
+                    rect = QRect(0, 0, self._image_size[0], self._image_size[1])
+                else:
+                    self._owner.statusBar().showMessage("当前没有可截图的图片。", 5000)
+                    return
             self._sel_item.setVisible(False)
             self._sel_item.setRect(QRectF())
+            if rect is None or rect.isNull():
+                self._owner.statusBar().showMessage("截图框选过小，已取消。", 5000)
+                return
             self._owner.on_capture(rect)
             return
         if self._mode == "draw":
@@ -768,7 +784,7 @@ class ImageViewerWindow(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowIcon(branding.make_app_icon())
         dlg.setWindowTitle("截图预览")
-        dlg.setMinimumSize(480, 420)
+        dlg.adjustSize()
         lay = QVBoxLayout(dlg)
 
         info = QLabel(f"原图选区：x={image_rect.x()}  y={image_rect.y()}  "
@@ -778,16 +794,16 @@ class ImageViewerWindow(QMainWindow):
         lay.addWidget(info)
 
         from PySide6.QtWidgets import QLabel as L
-        img_lbl = L()
-        img_lbl.setMinimumSize(420, 320)
-        img_lbl.setStyleSheet("background:#121218;border-radius:6px;")
-        import PySide6.QtCore as QC
+        # 预览图按 crop 宽高比自适应，避免小图四周出现大黑框
+        max_w, max_h = 640, 480
         scaled = cropped
-        max_w, max_h = 440, 320
         if scaled.width() > max_w or scaled.height() > max_h:
             scaled = cropped.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        img_lbl = L()
         img_lbl.setPixmap(scaled)
-        lay.addWidget(img_lbl, 1)
+        img_lbl.setMinimumSize(120, 80)
+        img_lbl.setStyleSheet("background:#121218;border-radius:6px;padding:6px;")
+        lay.addWidget(img_lbl, 0, Qt.AlignCenter)
         note = QLabel(f"裁剪来源：直接从原图数据裁剪，非屏幕截图。已叠加当前图片的标注。")
         note.setStyleSheet("color:#9aa4f2;")
         lay.addWidget(note, 0)
