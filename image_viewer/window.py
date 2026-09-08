@@ -10,12 +10,13 @@ from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
     QGraphicsRectItem, QStatusBar, QLabel, QToolBar, QApplication, QStyle,
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QFileDialog,
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QFileDialog, QInputDialog, QComboBox, QSpinBox,
 )
 
 from . import protocol
 from . import config as viewer_config
 from . import branding
+from .annotation import Annotation, TOOL_ARROW, TOOL_RECT, TOOL_ELLIPSE, TOOL_PEN, TOOL_TEXT, TOOL_SELECT, ALL_TOOLS
 
 RESOLUTION = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
@@ -62,10 +63,12 @@ class ImageCanvas(QGraphicsView):
         self.setAcceptDrops(False)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
 
-        # 截图模式状态
-        self._capture_mode = False
-        self._sel_start = None       # 场景坐标（QPointF）
-        self._sel_rect = None        # 最终框选（原图坐标系 QRect）
+        # 模式状态：view / capture / draw / select
+        self._mode = "view"
+        self._sel_start = None       # 视图/场景坐标起点
+        self._sel_rect = None        # 框选/标注构建结果
+        # 标注实时预览（场景坐标，用 ImageCanvas 绘制）
+        self._draw_preview = None    # (type, points) 进行中的标注
         # 自适应渲染质量，初始为平滑（缩小时）
         self._apply_quality()
 
@@ -132,7 +135,7 @@ class ImageCanvas(QGraphicsView):
         self.scale(factor, factor)
         self._notify_status()
 
-    # ── 事件：滚轮缩放 / 右键平移 / 截图框选 ──
+    # ── 事件：滚轮缩放 / 右键平移 / 框选 / 标注 ──
     def wheelEvent(self, event):
         delta = event.angleDelta().y()
         if delta > 0:
@@ -148,13 +151,8 @@ class ImageCanvas(QGraphicsView):
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
-        if self._capture_mode and event.button() == Qt.LeftButton:
-            # 进入截图框选：记录起点（场景坐标）
-            self._sel_start = self.mapToScene(event.pos())
-            self._sel_rect = None
-            self._sel_item.setVisible(True)
-            self._update_sel_rect(event.pos())
-            self.setCursor(Qt.CrossCursor)
+        if event.button() == Qt.LeftButton and self._mode in ("capture", "draw", "select"):
+            self._on_left_press(event)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -171,8 +169,17 @@ class ImageCanvas(QGraphicsView):
             )
             event.accept()
             return
-        if self._capture_mode and self._sel_start is not None:
-            self._update_sel_rect(event.pos())
+        if event.buttons() & Qt.LeftButton and self._mode in ("capture", "draw"):
+            self._on_left_drag(event)
+            event.accept()
+            return
+        if self._mode == "draw":
+            # 悬停时更新画笔预览
+            self._on_left_drag(event)
+            event.accept()
+            return
+        if self._mode == "select":
+            self._on_select_move(event)
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -183,7 +190,55 @@ class ImageCanvas(QGraphicsView):
             self.setCursor(Qt.OpenHandCursor)
             event.accept()
             return
-        if self._capture_mode and event.button() == Qt.LeftButton and self._sel_start is not None:
+        if event.button() == Qt.LeftButton and self._mode in ("capture", "draw", "select"):
+            self._on_left_release(event)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    # ── 模式分发 ──
+    def _on_left_press(self, event):
+        if self._mode == "capture":
+            self._sel_start = self.mapToScene(event.pos())
+            self._sel_rect = None
+            self._sel_item.setVisible(True)
+            self._update_sel_rect(event.pos())
+            self.setCursor(Qt.CrossCursor)
+            return
+        if self._mode == "draw":
+            tool = self._owner.current_tool()
+            img_pt = self.mapToScene(event.pos())
+            if tool == "pen":
+                self._draw_preview = ("pen", [img_pt])
+            else:
+                # arrow/rect/ellipse/text 只需记录起点；text 在 release 输入
+                self._draw_preview = (tool, [img_pt])
+            self.viewport().update()
+            return
+        if self._mode == "select":
+            self._owner.begin_select(self.mapToScene(event.pos()))
+            return
+
+    def _on_left_drag(self, event):
+        if self._mode == "capture":
+            self._update_sel_rect(event.pos())
+            return
+        if self._mode == "draw" and self._draw_preview is not None:
+            tool, pts = self._draw_preview
+            img_pt = self.mapToScene(event.pos())
+            if tool == "pen":
+                pts.append(img_pt)
+            else:
+                # 单点锚定：用第二个点作为终点
+                if len(pts) >= 1:
+                    pts = pts[:1]
+                pts.append(img_pt)
+                self._draw_preview = (tool, pts)
+            self.viewport().update()
+            return
+
+    def _on_left_release(self, event):
+        if self._mode == "capture":
             rect = self._current_sel_image_rect()
             self._sel_start = None
             self.setCursor(Qt.CrossCursor)
@@ -191,16 +246,46 @@ class ImageCanvas(QGraphicsView):
                 self._sel_item.setVisible(False)
                 self._sel_item.setRect(QRectF())
                 self._owner.statusBar().showMessage("截图框选过小，已取消。", 5000)
-                event.accept()
                 return
             self._sel_item.setVisible(False)
             self._sel_item.setRect(QRectF())
-            event.accept()
-            # 交给窗口执行裁剪 -> 预览 -> 保存
             self._owner.on_capture(rect)
             return
-        super().mouseReleaseEvent(event)
+        if self._mode == "draw":
+            self._finish_draw(event)
+            return
+        if self._mode == "select":
+            self._owner.end_select()
+            return
 
+    def _finish_draw(self, event):
+        import copy
+        tool, pts = self._draw_preview or (None, [])
+        self._draw_preview = None
+        if not pts:
+            return
+        # 剔除过小形状（拖拽太短）
+        if tool in ("arrow", "rect", "ellipse") and len(pts) >= 2:
+            d = (pts[1] - pts[0])
+            if abs(d.x()) < 3 and abs(d.y()) < 3:
+                self.viewport().update()
+                return
+        pen_width = self._owner.current_pen_width()
+        color = self._owner.current_color()
+        font_size = self._owner.current_font_size()
+        if tool == "text":
+            # 弹出文字输入
+            self._owner.add_text_at(pts[0], color, font_size)
+            self.viewport().update()
+            return
+        a = Annotation(type_=tool, points=list(pts), color=color, width=pen_width, font_size=font_size)
+        self._owner.add_annotation(a)
+        self.viewport().update()
+
+    def _on_select_move(self, event):
+        self._owner.move_select_scene(self.mapToScene(event.pos()))
+
+    # ── 截图框选辅助 ──
     def _update_sel_rect(self, view_pos):
         """在场景中绘制当前拖拽框（视图坐标 -> 场景坐标）。"""
         if self._sel_start is None:
@@ -214,25 +299,56 @@ class ImageCanvas(QGraphicsView):
         if self._sel_item.rect().isNull():
             return None
         from . import capture
-        if self._sel_start is None:
-            return None
         # 直接以场景坐标矩形裁剪即可，场景坐标 == 原图坐标
         r = self._sel_item.rect().normalized()
         return capture.clamp_rect_to_image(r, self._image_size[0], self._image_size[1])
 
-    # ── 截图模式开关 ──
-    def set_capture_mode(self, on):
-        self._capture_mode = bool(on)
-        if self._capture_mode:
-            self._sel_item.setVisible(False)
+    # ── 模式开关 ──
+    def set_mode(self, mode):
+        self._mode = mode
+        self._draw_preview = None
+        self._sel_item.setVisible(False)
+        self._sel_item.setRect(QRectF())
+        if mode == "capture":
             self.setCursor(Qt.CrossCursor)
+        elif mode == "draw":
+            self.setCursor(Qt.CrossCursor)
+        elif mode == "select":
+            self.setCursor(Qt.PointingHandCursor)
         else:
-            self._sel_item.setVisible(False)
-            self._sel_item.setRect(QRectF())
             self.setCursor(Qt.OpenHandCursor)
+        self.viewport().update()
 
     def is_capture_mode(self):
-        return self._capture_mode
+        return self._mode == "capture"
+
+    # ── 标注渲染 ──
+    def drawForeground(self, painter, rect):
+        """在场景之上绘制标注与进行中的预览（不修改原图）。"""
+        owner = self._owner
+        # 已提交标注
+        anns = owner.get_annotations()
+        scale = self.transform().m11()
+        if anns:
+            from .annotation import draw_annotations
+            painter.setRenderHint(QPainter.Antialiasing)
+            draw_annotations(painter, anns, scale=scale, in_image_space=True)
+        # 进行中的标注预览
+        if self._draw_preview:
+            tool, pts = self._draw_preview
+            if pts:
+                from .annotation import Annotation, draw_annotations
+                a = Annotation(type_=tool, points=list(pts), color=owner.current_color(),
+                               width=owner.current_pen_width(), font_size=owner.current_font_size())
+                draw_annotations(painter, [a], scale=scale, in_image_space=True)
+        # 选择框高亮
+        if self._mode == "select":
+            sel = owner.get_sel_rect()
+            if sel is not None and not sel.isNull():
+                painter.setPen(QPen(QColor("#22c55e"), 2, Qt.DashLine))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRect(sel)
+        super().drawForeground(painter, rect)
 
     def _notify_status(self):
         self._apply_quality()
@@ -253,6 +369,16 @@ class ImageViewerWindow(QMainWindow):
         if not self._shortcuts:
             self._shortcuts = viewer_config.get_viewer_settings()["shortcuts"]
         self._qkeys = viewer_config.qkeys_for(self._shortcuts)
+
+        # 标注状态
+        self._annotations = []          # 已提交标注 Annotation 列表
+        self._undo_stack = []           # [[Annotation...] 快照]
+        self._redo_stack = []
+        self._tool = TOOL_RECT          # 当前工具
+        self._color = "#ef4444"
+        self._pen_width = 4.0           # 原图像素线宽
+        self._font_size = 32.0          # 原图像素字号
+        self._select_rect = None        # 选择工具的框选矩形（场景坐标）
 
         # 应用图标 + 视觉样式
         self.setWindowIcon(branding.make_app_icon())
@@ -386,6 +512,66 @@ class ImageViewerWindow(QMainWindow):
         self.act_capture.toggled.connect(self._on_capture_toggle)
         tb.addAction(self.act_capture)
 
+        tb.addSeparator()
+
+        # ── 标注工具 ──
+        self._tool_actions = {}
+        tools = [
+            ("select", "⬚ 选择", "选择/移动标注"),
+            ("arrow", "↗ 箭头", "画箭头"),
+            ("rect", "▭ 矩形", "画矩形"),
+            ("ellipse", "◯ 椭圆", "画椭圆"),
+            ("pen", "✎ 画笔", "自由画笔"),
+            ("text", "T 文字", "添加文字"),
+        ]
+        for key, label, tip in tools:
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda _=False, k=key: self.set_tool(k))
+            tb.addAction(act)
+            self._tool_actions[key] = act
+        self._tool_actions["select"].setChecked(True)
+
+        # 颜色
+        tb.addSeparator()
+        self._color_combo = self._build_color_selector()
+        tb.addWidget(self._color_combo)
+
+        # 线宽（原图像素）
+        lb_w = QLabel("线宽")
+        lb_w.setStyleSheet("color:#9aa4f2;padding-left:6px;")
+        tb.addWidget(lb_w)
+        self._pen_width_spin = self._spin(2, 40, int(self._pen_width), self._on_pen_width)
+        tb.addWidget(self._pen_width_spin)
+
+        lb_f = QLabel("字号")
+        lb_f.setStyleSheet("color:#9aa4f2;")
+        tb.addWidget(lb_f)
+        self._font_size_spin = self._spin(8, 200, int(self._font_size), self._on_font_size)
+        tb.addWidget(self._font_size_spin)
+
+        tb.addSeparator()
+
+        # 撤销 / 重做
+        self.act_undo = QAction("↺ 撤销", self)
+        self.act_undo.setShortcut("Ctrl+Z")
+        self.act_undo.setToolTip("撤销 (Ctrl+Z)")
+        self.act_undo.triggered.connect(self.undo)
+        tb.addAction(self.act_undo)
+
+        self.act_redo = QAction("↻ 重做", self)
+        self.act_redo.setShortcut("Ctrl+Y")
+        self.act_redo.setToolTip("重做 (Ctrl+Y)")
+        self.act_redo.triggered.connect(self.redo)
+        tb.addAction(self.act_redo)
+
+        self.act_del = QAction("🗑 删除所选", self)
+        self.act_del.setShortcut("Delete")
+        self.act_del.setToolTip("删除所选标注 (Delete)")
+        self.act_del.triggered.connect(self.delete_selected)
+        tb.addAction(self.act_del)
+
         self.act_quit = QAction("✕ 关闭 (Esc)", self)
         self.act_quit.setShortcut("Esc")
         self.act_quit.triggered.connect(self.close)
@@ -496,19 +682,21 @@ class ImageViewerWindow(QMainWindow):
 
     # ── 截图：框选 -> 预览 -> 保存 ──
     def _on_capture_toggle(self, checked):
+        # 截图按钮是 checkable，与工具互斥；进入截图模式
         if checked:
-            # 有图才允许截图
             if not self.canvas.can_load():
                 self.act_capture.blockSignals(True)
                 self.act_capture.setChecked(False)
                 self.act_capture.blockSignals(False)
                 self.statusBar().showMessage("当前没有可截图的图片。", 5000)
                 return
-            self.canvas.set_capture_mode(True)
+            self._uncheck_tools()
+            self.act_capture.setChecked(True)
+            self.canvas.set_mode("capture")
             self.setCursor(Qt.CrossCursor)
             self.statusBar().showMessage("截图模式：按住左键框选要截取的原图区域。", 6000)
         else:
-            self.canvas.set_capture_mode(False)
+            self.canvas.set_mode("view")
             self.setCursor(Qt.OpenHandCursor)
 
     def on_capture(self, image_rect):
@@ -519,7 +707,7 @@ class ImageViewerWindow(QMainWindow):
             self.act_capture.blockSignals(True)
             self.act_capture.setChecked(False)
             self.act_capture.blockSignals(False)
-        self.canvas.set_capture_mode(False)
+        self.canvas.set_mode("view")
         self.setCursor(Qt.OpenHandCursor)
 
         if not self.canvas.can_load():
@@ -604,6 +792,162 @@ class ImageViewerWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"✅ 截图已保存：{os.path.basename(saved_path['v'])}（{image_rect.width()}×{image_rect.height()}px）",
                 8000)
+
+    # ── 标注管理 ──
+    def current_tool(self):
+        return self._tool
+
+    def current_color(self):
+        return self._color
+
+    def current_pen_width(self):
+        return self._pen_width
+
+    def current_font_size(self):
+        return self._font_size
+
+    def get_annotations(self):
+        return self._annotations
+
+    def get_sel_rect(self):
+        return self._select_rect
+
+    def set_tool(self, tool):
+        if tool not in ALL_TOOLS:
+            return
+        self._tool = tool
+        self._uncheck_tools()
+        self.act_capture.setChecked(False)
+        self._tool_actions[tool].setChecked(True)
+        if tool == "select":
+            self.canvas.set_mode("select")
+        else:
+            self.canvas.set_mode("draw")
+        self.statusBar().showMessage(f"当前工具：{tool}", 3000)
+
+    def _uncheck_tools(self):
+        for act in self._tool_actions.values():
+            act.setChecked(False)
+
+    def _build_color_selector(self):
+        from PySide6.QtWidgets import QComboBox
+        combo = QComboBox()
+        combo.setStyleSheet(
+            "QComboBox{background:#2b2b2d;color:#e8e8e8;border-radius:5px;padding:3px 8px;}"
+            "QComboBox QAbstractItemView{background:#2b2b2d;color:#e8e8e8;}"
+        )
+        combo.addItems(["红色", "橙色", "黄色", "绿色", "蓝色", "紫色", "白色", "黑色"])
+        combo.setCurrentIndex(0)
+        combo.currentIndexChanged.connect(self._on_color_changed)
+        return combo
+
+    def _on_color_changed(self, idx):
+        from .annotation import COLOR_PRESETS
+        self._color = COLOR_PRESETS[idx]
+        self.statusBar().showMessage(f"颜色：{self._color}", 2000)
+
+    def _spin(self, low, high, value, callback):
+        sp = QSpinBox()
+        sp.setRange(low, high)
+        sp.setValue(value)
+        sp.setStyleSheet(
+            "QSpinBox{background:#2b2b2d;color:#e8e8e8;border-radius:5px;padding:2px 6px;}"
+            "QSpinBox::up-button,QSpinBox::down-button{width:14px;background:#3a3a40;}"
+        )
+        sp.setMaximumWidth(62)
+        sp.valueChanged.connect(callback)
+        return sp
+
+    def _on_pen_width(self, val):
+        self._pen_width = float(val)
+        if self.canvas._draw_preview:
+            self.canvas.viewport().update()
+
+    def _on_font_size(self, val):
+        self._font_size = float(val)
+
+    def add_annotation(self, ann):
+        self._undo_stack.append(list(self._annotations))
+        self._redo_stack.clear()
+        self._annotations.append(ann)
+        self.canvas.viewport().update()
+        self._update_toolbar_state()
+
+    def add_text_at(self, pos, color, font_size):
+        from PySide6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(self, "添加文字标注", "输入文字：")
+        if ok and text.strip():
+            ann = Annotation(type_=TOOL_TEXT, points=[pos], color=color,
+                             width=self._pen_width, font_size=font_size, text=text.strip())
+            self.add_annotation(ann)
+
+    def undo(self):
+        if not self._undo_stack:
+            return
+        self._redo_stack.append(list(self._annotations))
+        self._annotations = list(self._undo_stack.pop())
+        self.canvas.viewport().update()
+        self._update_toolbar_state()
+
+    def redo(self):
+        if not self._redo_stack:
+            return
+        self._undo_stack.append(list(self._annotations))
+        self._annotations = list(self._redo_stack.pop())
+        self.canvas.viewport().update()
+        self._update_toolbar_state()
+
+    def delete_selected(self):
+        if self._select_rect is None or self._select_rect.isNull():
+            self.statusBar().showMessage("请先用「⬚ 选择」框选要删除的标注区域。", 3000)
+            return
+        from .annotation import annotation_bbox
+        keep = []
+        removed = 0
+        for a in self._annotations:
+            bbox = annotation_bbox([a])
+            if bbox.isNull() or not self._select_rect.intersects(bbox):
+                keep.append(a)
+            else:
+                removed += 1
+        if removed:
+            self._undo_stack.append(list(self._annotations))
+            self._redo_stack.clear()
+            self._annotations = keep
+            self._select_rect = None
+            self.canvas.viewport().update()
+            self._update_toolbar_state()
+            self.statusBar().showMessage(f"已删除 {removed} 条标注。", 3000)
+        else:
+            self.statusBar().showMessage("选中区域内没有标注（先用「⬚ 选择」框选）。", 3000)
+
+    # 选择工具：begin / move / end
+    def _select_anchor(self):
+        return getattr(self, "_select_anchor_pt", None)
+
+    def begin_select(self, scene_pos):
+        if self._tool != "select":
+            return
+        self._select_anchor_pt = QPointF(scene_pos)
+        self._select_rect = QRectF(scene_pos, scene_pos).normalized()
+        self.canvas.viewport().update()
+
+    def move_select_scene(self, scene_pos):
+        if self._tool != "select" or self._select_rect is None:
+            return
+        if self._select_anchor() is not None:
+            self._select_rect = QRectF(self._select_anchor(), QPointF(scene_pos)).normalized()
+        else:
+            self._select_rect = QRectF(scene_pos, scene_pos)
+        self.canvas.viewport().update()
+
+    def end_select(self):
+        if self._select_rect is not None and self._select_rect.isNull():
+            self._select_rect = None
+        self.canvas.viewport().update()
+
+    def _update_toolbar_state(self):
+        pass
 
     def bring_to_front(self):
         self.show()
