@@ -48,9 +48,10 @@ def select_rect_from_view(view, v0, v1):
     return QRect(QPoint(int(round(x0)), int(round(y0))), QPoint(int(round(x1)), int(round(y1))))
 
 
-def save_capture(pixmap_or_image, path_base, prefix="qa", suffix_no=0):
-    """把裁剪结果保存为独立 PNG 文件，绝不覆盖原图。
-    返回 (保存路径, 错误信息)。文件名为 {base}_{prefix}_{ts}_{idx}.png"""
+def save_capture(pixmap_or_image, path_base, prefix="qa", suffix_no=0, fmt="jpeg", quality=90):
+    """把裁剪结果保存为独立文件，绝不覆盖原图。
+    默认用 JPEG（无损 PNG 对超大截图保存极慢），可指定 fmt="png"。
+    返回 (保存路径, 错误信息)。文件名为 {base}_{prefix}_{ts}_{idx}.{ext}"""
     import time
     if isinstance(pixmap_or_image, QPixmap):
         img = pixmap_or_image.toImage()
@@ -58,9 +59,19 @@ def save_capture(pixmap_or_image, path_base, prefix="qa", suffix_no=0):
         img = pixmap_or_image
     if img.isNull():
         return None, "裁剪结果为空"
+    fmt = (fmt or "jpeg").lower()
+    ext = "jpg" if fmt in ("jpeg", "jpg") else "png"
     ts = int(time.time())
-    filename = f"{path_base}_{prefix}_{ts}_{suffix_no}.png"
-    if not img.save(filename, "PNG"):
+    filename = f"{path_base}_{prefix}_{ts}_{suffix_no}.{ext}"
+    if ext == "jpg":
+        from PySide6.QtGui import QImageWriter
+        writer = QImageWriter(filename)
+        writer.setFormat(b"JPEG")
+        writer.setQuality(int(quality))
+        ok = writer.write(img)
+    else:
+        ok = img.save(filename, "PNG")
+    if not ok:
         return None, f"保存截图失败：{filename}"
     return filename, None
 
