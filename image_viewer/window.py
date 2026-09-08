@@ -617,14 +617,17 @@ class ImageViewerWindow(QMainWindow):
 
         tb.addSeparator()
 
-        # 撤销 / 重做（快捷键在画布 keyPressEvent 中处理）
-        self.act_undo = QAction("↺ 撤销", self)
+        # 撤销 / 前进（撤消的反向：撤销后点"前进"把内容找回来）
+        style = self.style()
+        ic_undo = style.standardIcon(QStyle.SP_MediaSeekBackward)
+        ic_redo = style.standardIcon(QStyle.SP_MediaSeekForward)
+        self.act_undo = QAction(ic_undo, "↺ 撤销", self)
         self.act_undo.setToolTip("撤销 (Ctrl+Z)")
         self.act_undo.triggered.connect(self.undo)
         tb.addAction(self.act_undo)
 
-        self.act_redo = QAction("↻ 重做", self)
-        self.act_redo.setToolTip("重做 (Ctrl+Y / Ctrl+Shift+Z)")
+        self.act_redo = QAction(ic_redo, "⟳ 前进", self)
+        self.act_redo.setToolTip("前进：把撤销的恢复回来 (Ctrl+Y / Ctrl+Shift+Z)")
         self.act_redo.triggered.connect(self.redo)
         tb.addAction(self.act_redo)
 
