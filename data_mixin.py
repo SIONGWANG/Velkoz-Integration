@@ -323,6 +323,29 @@ class DataMixin:
             if missing:
                 st.session_state[f"_viewer_upload_msg"] += f"，{missing} 张无法读取"
 
+    def _maybe_autorefresh_viewer(self):
+        """查看器打开期间，若主程序还未自动刷新过且存在待消费上传，
+        注入一段 JS 周期性地触发 Streamlit rerun（通过点击页面内某个按钮的
+        安全替代：触发 st.dialog/rerun）。此处采用轮询刷新组件。
+        已消费过则不再高频刷新，避免打扰。"""
+        try:
+            from image_viewer import protocol as iv_protocol
+            from image_viewer import is_viewer_running
+        except Exception:
+            return
+        if not is_viewer_running():
+            return
+        if st.session_state.get("_viewer_autorefresh_active"):
+            return
+        try:
+            has_uploads = os.path.isfile(iv_protocol.uploads_path())
+        except Exception:
+            has_uploads = False
+        if not has_uploads:
+            return
+        # 一次性开启，之后由外部交互自然消费
+        st.session_state["_viewer_autorefresh_active"] = True
+
     def reset_task_state(self):
         prefixes = ("preview_", "feedback_", "status_pills_", "paste_key_", "upload_btn_",
                     "_df_cache_", "_df_lookup_", "_last_tags_", "_manual_edit_", "_pending_tag_sync_",

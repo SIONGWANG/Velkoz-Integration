@@ -4,6 +4,7 @@
 本窗口为独立 QMainWindow，运行在 subprocess 中，不依赖主程序 / 现有 viewer/ 的任何 UI 状态。
 """
 import os
+import time
 
 from PySide6.QtCore import Qt, QRectF, QRect, QSize, QPointF, QPoint
 from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen
@@ -851,27 +852,34 @@ class ImageViewerWindow(QMainWindow):
             return path, err
 
         def do_upload():
-            from . import capture as cap
-            cap_dir = cap.default_capture_dir()
-            os.makedirs(cap_dir, exist_ok=True)
-            sample_id = self._cmd.get("sample_id", "") or (os.path.basename(self._images[self._current]) if self._images else "capture")
-            path, err = _save_crop(cap_dir, sample_id)
-            if err:
-                QMessageBox.warning(dlg, "上传失败", err)
-                return
-            # 记录来源关系并推送到主程序上传队列
-            rel = _relative_source(self._images[self._current] if self._images else "")
-            from . import protocol as pr
-            pr.push_upload({
-                "kind": "screenshot",
-                "path": path,                       # 截图文件绝对路径
-                "sample_id": str(sample_id),        # 当前样本/记录ID
-                "source_image": rel,                # 源图片（相对/绝对路径）
-                "crop_rect": [image_rect.x(), image_rect.y(), image_rect.width(), image_rect.height()],
-                "ts": int(time.time()),
-            })
-            saved_path["v"] = path
-            dlg.accept()
+            try:
+                from . import capture as cap
+                cap_dir = cap.default_capture_dir()
+                os.makedirs(cap_dir, exist_ok=True)
+                sample_id = self._cmd.get("sample_id", "") or (os.path.basename(self._images[self._current]) if self._images else "capture")
+                path, err = _save_crop(cap_dir, sample_id)
+                if err:
+                    QMessageBox.warning(dlg, "上传失败", err)
+                    return
+                # 记录来源关系并推送到主程序上传队列
+                rel = _relative_source(self._images[self._current] if self._images else "")
+                from . import protocol as pr
+                pr.push_upload({
+                    "kind": "screenshot",
+                    "path": path,                       # 截图文件绝对路径
+                    "sample_id": str(sample_id),        # 当前样本/记录ID
+                    "source_image": rel,                # 源图片（相对/绝对路径）
+                    "crop_rect": [image_rect.x(), image_rect.y(), image_rect.width(), image_rect.height()],
+                    "ts": int(time.time()),
+                })
+                saved_path["v"] = path
+                self.statusBar().showMessage(
+                    f"✅ 已上传到质检：{os.path.basename(path)}（回到主程序即可看到）", 8000)
+                dlg.accept()
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                QMessageBox.warning(dlg, "上传失败", f"上传截图时出错：{e}")
 
         def do_save():
             from . import capture as cap

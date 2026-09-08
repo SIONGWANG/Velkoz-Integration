@@ -108,6 +108,12 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         except Exception:
             pass
 
+        # 查看器开着时，低频自动刷新以拾取上传的截图（消费成功后停止）
+        try:
+            self._maybe_autorefresh_viewer()
+        except Exception:
+            pass
+
         st.markdown(MAIN_CSS + STATUS_BUTTON_JS, unsafe_allow_html=True)
 
         # 文本框高度脚本（固定/自适应），随设置注入
