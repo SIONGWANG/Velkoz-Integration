@@ -1048,6 +1048,50 @@ class SettingsMixin:
         st.caption("悬浮窗显示当前样本全部图片；关闭后可随时重新打开并自动同步。")
         st.caption("悬浮窗工具栏点「小精灵」可最小化为桌面小精灵（👁 大眼睛），点击小精灵或右键菜单可恢复悬浮窗，可拖动到任意位置。")
 
+        self._render_image_viewer_section()
+
+    def _render_image_viewer_section(self):
+        """独立图片查看器：高分辨率原图查看（Phase 1）"""
+        try:
+            from image_viewer import open_image_viewer, is_viewer_running
+        except Exception:
+            st.caption("🔍 独立图片查看器（模块不可用，已跳过）")
+            return
+        st.divider()
+        st.caption("🔍 独立图片查看器")
+        group = None
+        cid = st.session_state.get('current_id')
+        for g in st.session_state.get('data_groups', []):
+            if str(g.get('id')) == str(cid):
+                group = g
+                break
+        click_col, status_col = st.columns([1.5, 1])
+        with click_col:
+            btn_label = "🔍 打开独立图片查看器"
+            button = st.button(btn_label, use_container_width=True, key="_iviewer_open")
+            if button:
+                if not group:
+                    st.warning("请先加载并进入某组数据，再打开查看器。")
+                else:
+                    root = group.get('root', '')
+                    images = [os.path.join(root, f) for f in group.get('images', [])]
+                    images = [p for p in images if os.path.isfile(p)]
+                    if not images:
+                        st.warning("当前组没有可查看的图片。")
+                    else:
+                        idx = 0
+                        ok, msg = open_image_viewer(images, current_index=idx, sample_id=group.get('id', ''))
+                        if not ok:
+                            st.error(msg)
+                        else:
+                            st.session_state['_iviewer_opened'] = True
+                            st.rerun()
+        with status_col:
+            if st.session_state.get('_iviewer_opened') and is_viewer_running():
+                st.caption("🟢 查看器运行中")
+            else:
+                st.caption("⚪ 查看器未打开")
+
     def _render_hotkeys_section(self):
         """快捷键开关 + 说明面板"""
         enable_hotkeys = st.toggle("⌨️ 启用快捷键 (1-4, ~)",
