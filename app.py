@@ -98,19 +98,9 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         version = APP_VERSION
         st.set_page_config(layout="wide", page_title=f"{APP_NAME} V{version}")
 
-        # 消费独立图片查看器回传的截图（加入当前组 evidence_pool）
+        # 轮询独立图片查看器回传的截图（自动拾取上传）
         try:
-            self._consume_viewer_uploads()
-            msg = st.session_state.get('_viewer_upload_msg')
-            if msg:
-                st.toast(f"🖼️ {msg}")
-                st.session_state.pop('_viewer_upload_msg', None)
-        except Exception:
-            pass
-
-        # 查看器开着时，低频自动刷新以拾取上传的截图（消费成功后停止）
-        try:
-            self._maybe_autorefresh_viewer()
+            self._poll_viewer_uploads()
         except Exception:
             pass
 

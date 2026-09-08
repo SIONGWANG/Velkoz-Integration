@@ -843,7 +843,7 @@ class ImageViewerWindow(QMainWindow):
         btns.addWidget(cancel_btn)
         lay.addLayout(btns)
 
-        saved_path = {"v": None}
+        saved_path = {"v": None, "action": None}   # action: "save" | "upload"
 
         def _save_crop(cap_dir, sample_id):
             from . import capture as cap
@@ -873,8 +873,7 @@ class ImageViewerWindow(QMainWindow):
                     "ts": int(time.time()),
                 })
                 saved_path["v"] = path
-                self.statusBar().showMessage(
-                    f"✅ 已上传到质检：{os.path.basename(path)}（回到主程序即可看到）", 8000)
+                saved_path["action"] = "upload"
                 dlg.accept()
             except Exception as e:
                 import traceback
@@ -892,6 +891,7 @@ class ImageViewerWindow(QMainWindow):
                 QMessageBox.warning(dlg, "保存失败", err)
             else:
                 saved_path["v"] = path
+                saved_path["action"] = "save"
                 dlg.accept()
 
         def do_again():
@@ -909,9 +909,14 @@ class ImageViewerWindow(QMainWindow):
 
         exec_res = dlg.exec()
         if saved_path["v"]:
-            self.statusBar().showMessage(
-                f"✅ 截图已保存：{os.path.basename(saved_path['v'])}（{image_rect.width()}×{image_rect.height()}px）",
-                8000)
+            action = saved_path.get("action")
+            base = os.path.basename(saved_path["v"])
+            if action == "upload":
+                self.statusBar().showMessage(
+                    f"🟢 已上传到质检：{base}（返回主程序即可看到）", 8000)
+            else:
+                self.statusBar().showMessage(
+                    f"✅ 截图已保存：{base}（{image_rect.width()}×{image_rect.height()}px）", 8000)
 
     # ── 标注管理 ──
     def current_tool(self):
