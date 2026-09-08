@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from . import protocol
 from . import config as viewer_config
+from . import branding
 
 RESOLUTION = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
@@ -24,34 +25,6 @@ ZOOM_STEP_IN = 1.25
 ZOOM_STEP_OUT = 1 / 1.25
 
 CANVAS_BG = QColor(30, 30, 32)
-TOOLBAR_QSS = """
-QToolBar {
-    background: #2b2b2d;
-    border: none;
-    padding: 4px;
-    spacing: 4px;
-}
-QToolButton {
-    color: #e8e8e8;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    padding: 5px 10px;
-    font-size: 14px;
-}
-QToolButton:hover { background: #3d3d40; }
-QToolButton:pressed { background: #4a4a4e; }
-QToolBar::separator { background: #4a4a4e; width: 1px; margin: 4px 4px; }
-"""
-STATUS_QSS = """
-QStatusBar {
-    background: #1e1e20;
-    color: #c8c8c8;
-    border-top: 1px solid #333;
-    font-size: 13px;
-}
-QStatusBar QLabel { color: #c8c8c8; padding: 0 10px; }
-"""
 
 
 class ImageCanvas(QGraphicsView):
@@ -205,10 +178,12 @@ class ImageViewerWindow(QMainWindow):
             self._shortcuts = viewer_config.get_viewer_settings()["shortcuts"]
         self._qkeys = viewer_config.qkeys_for(self._shortcuts)
 
+        # 应用图标 + 视觉样式
+        self.setWindowIcon(branding.make_app_icon())
         self.setWindowTitle("Velkoz 独立图片查看器")
         self.setMinimumSize(780, 520)
         self.resize(1180, 800)
-        self.setStyleSheet(TOOLBAR_QSS)
+        self.setStyleSheet(branding.window_qss())
 
         # ── 画布 ──
         self.canvas = ImageCanvas(self)
@@ -299,7 +274,11 @@ class ImageViewerWindow(QMainWindow):
         tb.addAction(self.act_zoomout)
 
         self._zoom_label = QLabel("100%")
-        self._zoom_label.setStyleSheet("color:#e8e8e8;padding:0 10px;")
+        self._zoom_label.setAlignment(Qt.AlignCenter)
+        self._zoom_label.setStyleSheet(
+            "color:#8b5cf6;font-weight:600;font-size:14px;padding:2px 12px;"
+            "border:1px solid #6366f1;border-radius:11px;background:rgba(99,102,241,0.12);"
+        )
         tb.addWidget(self._zoom_label)
 
         self.act_zoomin = QAction(ic_zoomin, "放大", self)
@@ -330,12 +309,19 @@ class ImageViewerWindow(QMainWindow):
 
     def _build_statusbar(self):
         status = QStatusBar()
-        status.setStyleSheet(STATUS_QSS)
+        status.setStyleSheet(branding.window_qss())
         self.setStatusBar(status)
         self.status_index = QLabel("— / —")
         self.status_res = QLabel("—")
         self.status_zoom_lbl = QLabel("—")
         self.status_names = QLabel("")
+        # 分辨率标签用淡色强调
+        self.status_res.setStyleSheet("color:#9aa4f2;")
+        self.status_zoom_lbl.setStyleSheet("color:#8b5cf6;font-weight:600;padding-right:14px;")
+        # 左下角小标
+        self._brand_lbl = QLabel("👁 Velkoz")
+        self._brand_lbl.setStyleSheet("color:#6b7280;padding:0 8px;")
+        status.addWidget(self._brand_lbl, 0)
         status.addWidget(self.status_names, 1)
         status.addPermanentWidget(self.status_index)
         status.addPermanentWidget(self.status_res)
