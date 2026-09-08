@@ -54,9 +54,13 @@ class ZoneCMixin:
             with btn_c2:
                 original_path = os.path.join(group['root'], group['original']) if group.get('original') else None
                 if st.button("🖼️", key=f"open_original_{group['id']}", use_container_width=True,
-                             help="打开原图", disabled=not original_path):
-                    if original_path:
-                        self.open_in_system(original_path)
+                             help="打开图片（按所选方式）", disabled=not original_path):
+                    msg, ok = self._open_viewer_app()
+                    if ok:
+                        st.toast(msg)
+                        st.rerun()
+                    else:
+                        st.warning(msg)
 
         st.divider()
 

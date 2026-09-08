@@ -239,9 +239,9 @@ class SettingsMixin:
                     return;
                 }}
 
-                // 系统查看器
+                // 打开/关闭图片查看器（内置模式 toggle；系统模式打开）
                 if (e.key === '`' || e.key === '~') {{
-                    const btn = findBtn(b => b.innerText.includes('🖼️'));
+                    const btn = findBtn(b => b.innerText.includes('查看器'));
                     if (btn && !btn.disabled) {{
                         e.preventDefault();
                         btn.click();
@@ -276,6 +276,58 @@ class SettingsMixin:
             elif platform.system() == "Darwin": subprocess.call(["open", path])
             else: subprocess.call(["xdg-open", path])
         except Exception as e: st.error(f"打开失败: {e}")
+
+    # ── 统一"打开图片"入口（内置 / 系统 双模式 + toggle） ──
+
+    def _current_group_images(self):
+        """返回当前组的绝对图片路径列表（按 group['images'] 解析）。"""
+        cid = st.session_state.get('current_id')
+        group = None
+        for g in st.session_state.get('data_groups', []):
+            if str(g.get('id')) == str(cid):
+                group = g
+                break
+        if not group:
+            return None, "请先加载并进入某组数据。"
+        root = group.get('root', '')
+        images = [os.path.join(root, f) for f in group.get('images', [])]
+        images = [p for p in images if os.path.isfile(p)]
+        if not images:
+            return None, "当前组没有可查看的图片。"
+        return images, ""
+
+    def _open_viewer_app(self):
+        """统一打开图片：依据查看器模式打开。内置模式支持 toggle（点/按·开、再按关）。
+        返回 (msg, ok)。"""
+        try:
+            from image_viewer import open_image_viewer, is_viewer_running, close_image_viewer
+            from image_viewer import config as iv_config
+        except Exception as e:
+            return f"图片查看模块不可用：{e}", False
+
+        images, err = self._current_group_images()
+        if images is None:
+            return err, False
+
+        mode = iv_config.get_viewer_mode()
+        if mode == iv_config.MODE_SYSTEM:
+            # 系统默认查看器：打开第一张当前原图（外部程序，不 toggle）
+            first = next((p for p in images), None)
+            if not first:
+                return "当前组没有可查看的图片。", False
+            self.open_in_system(first)
+            return f"已用系统默认查看器打开：{os.path.basename(first)}", True
+
+        # 内置模式：toggle
+        if is_viewer_running():
+            close_image_viewer()
+            return "已关闭内置图片查看器。", True
+        sc = iv_config.get_viewer_settings()["shortcuts"]
+        ok, msg = open_image_viewer(images, current_index=0, sample_id="",
+                                    shortcuts=sc)
+        if not ok:
+            return msg, False
+        return "已打开内置图片查看器。", True
 
     # ── 分类管理 ──
 
@@ -1100,46 +1152,20 @@ class SettingsMixin:
 
         click_col, status_col = st.columns([1.5, 1])
         with click_col:
-            if mode == iv_config.MODE_BUILTIN:
-                btn_label = "🔍 打开内置图片查看器"
-                button = st.button(btn_label, use_container_width=True, key="_iviewer_open")
-                if button:
-                    if not group:
-                        st.warning("请先加载并进入某组数据，再打开查看器。")
-                    else:
-                        root = group.get('root', '')
-                        images = [os.path.join(root, f) for f in group.get('images', [])]
-                        images = [p for p in images if os.path.isfile(p)]
-                        if not images:
-                            st.warning("当前组没有可查看的图片。")
-                        else:
-                            idx = 0
-                            sc = iv_config.get_viewer_settings()["shortcuts"]
-                            ok, msg = open_image_viewer(images, current_index=idx, sample_id=group.get('id', ''), shortcuts=sc)
-                            if not ok:
-                                st.error(msg)
-                            else:
-                                st.session_state['_iviewer_opened'] = True
-                                st.rerun()
-            else:
-                btn_label = "🖼️ 用系统默认查看器打开"
-                button = st.button(btn_label, use_container_width=True, key="_iviewer_open_sys")
-                if button:
-                    if not group:
-                        st.warning("请先加载并进入某组数据。")
-                    else:
-                        root = group.get('root', '')
-                        images = [os.path.join(root, f) for f in group.get('images', [])]
-                        images = [p for p in images if os.path.isfile(p)]
-                        if not images:
-                            st.warning("当前组没有可查看的图片。")
-                        else:
-                            # 打开当前原图（第一张）到系统默认查看器
-                            self.open_in_system(images[0])
-                            st.caption(f"已用系统默认查看器打开：{os.path.basename(images[0])}")
+            # 统一"打开图片"按钮：内置模式 toggle（开/关），系统模式打开第一张
+            toggle_label = "🖼️ 关闭内置查看器" if (mode == iv_config.MODE_BUILTIN and is_viewer_running()) else \
+                           ("🔍 打开内置图片查看器" if mode == iv_config.MODE_BUILTIN else "🖼️ 用系统默认查看器打开")
+            if st.button(toggle_label, use_container_width=True, key="_iviewer_toggle"):
+                msg, ok = self._open_viewer_app()
+                if ok:
+                    st.toast(msg)
+                    st.session_state['_iviewer_opened'] = True
+                    st.rerun()
+                else:
+                    st.warning(msg)
         with status_col:
             if mode == iv_config.MODE_BUILTIN:
-                if st.session_state.get('_iviewer_opened') and is_viewer_running():
+                if is_viewer_running():
                     st.caption("🟢 内置查看器运行中")
                 else:
                     st.caption("⚪ 内置查看器未打开")
