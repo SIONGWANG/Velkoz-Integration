@@ -97,6 +97,9 @@ class ViewerRunner:
         images = cmd.get("images", [])
         idx = cmd.get("current_index", 0)
         self.window.set_images(images, idx)
+        # 若附带快捷键更新，则应用
+        if cmd.get("shortcuts"):
+            self.window.set_shortcuts(cmd["shortcuts"])
         # 若主程序请求置于前台（再次打开时唤醒）
         if cmd.get("activate"):
             self.window.bring_to_front()

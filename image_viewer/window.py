@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import protocol
+from . import config as viewer_config
 
 RESOLUTION = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
@@ -198,6 +199,11 @@ class ImageViewerWindow(QMainWindow):
         self._images = self._cmd.get("images", []) or []
         self._current = int(self._cmd.get("current_index", 0))
         self._on_top = bool(self._cmd.get("on_top", True))
+        # 快捷键设置：优先取本次命令携带的，否则从配置文件读取
+        self._shortcuts = self._cmd.get("shortcuts") or None
+        if not self._shortcuts:
+            self._shortcuts = viewer_config.get_viewer_settings()["shortcuts"]
+        self._qkeys = viewer_config.qkeys_for(self._shortcuts)
 
         self.setWindowTitle("Velkoz 独立图片查看器")
         self.setMinimumSize(780, 520)
@@ -214,12 +220,48 @@ class ImageViewerWindow(QMainWindow):
         # ── 状态栏 ──
         self._build_statusbar()
 
+        # 应用快捷键（覆盖硬编码默认值）
+        self._apply_shortcuts()
+
         # 置顶（可在打开时切换）
         if self._on_top:
             self._set_topmost(True)
 
         # 打开后居中
         self._load_current()
+
+    # ── 快捷键 ──
+    def _apply_shortcuts(self):
+        """把配置的快捷键绑定到对应 action / 键位。"""
+        qk = self._qkeys
+        mapping = {
+            "prev": self.act_prev,
+            "next": self.act_next,
+            "zoom_in": self.act_zoomin,
+            "zoom_out": self.act_zoomout,
+            "fit": self.act_fit,
+            "hundred": self.act_100,
+            "close": self.act_quit,
+        }
+        for key, act in mapping.items():
+            seq = qk.get(key)
+            if seq:
+                try:
+                    act.setShortcut(seq)
+                except Exception:
+                    pass
+            # 更新工具栏提示
+            if key in ("prev", "next", "zoom_in", "zoom_out", "fit", "hundred", "close"):
+                act = mapping[key]
+                try:
+                    act.setToolTip(f"{act.text()} ({seq})" if seq else act.text())
+                except Exception:
+                    pass
+
+    def set_shortcuts(self, shortcuts):
+        self._shortcuts = shortcuts or viewer_config.DEFAULT_SHORTCUTS
+        self._qkeys = viewer_config.qkeys_for(self._shortcuts)
+        self._apply_shortcuts()
 
     # ── UI 构建 ──
     def _build_toolbar(self):

@@ -75,6 +75,18 @@ class SettingsMixin:
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")
         try:
             os.makedirs(os.path.dirname(settings_file), exist_ok=True)
+            # 读取现有配置，保留 image_viewer 等非本方法管理的键，避免被覆盖
+            existing = {}
+            if os.path.isfile(settings_file):
+                try:
+                    with open(settings_file, 'r', encoding='utf-8') as f:
+                        loaded = f.read().strip()
+                        if loaded:
+                            loaded = json.loads(loaded)
+                            if isinstance(loaded, dict):
+                                existing = loaded
+                except Exception:
+                    existing = {}
             settings = {
                 "layout_width": st.session_state.get('layout_width', 80),
                 "layout_height": st.session_state.get('layout_height', 85),
@@ -88,6 +100,9 @@ class SettingsMixin:
                 "textarea_height": st.session_state.get('textarea_height', 68),
                 "textarea_auto_max": st.session_state.get('textarea_auto_max', 400),
             }
+            # 合并：保留其他模块写入的键（如 image_viewer）
+            if "image_viewer" in existing:
+                settings["image_viewer"] = existing["image_viewer"]
             with open(settings_file, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -1051,9 +1066,10 @@ class SettingsMixin:
         self._render_image_viewer_section()
 
     def _render_image_viewer_section(self):
-        """独立图片查看器：高分辨率原图查看（Phase 1）"""
+        """独立图片查看器：高分辨率原图查看（Phase 1）+ 快捷键设置（Phase 2）"""
         try:
             from image_viewer import open_image_viewer, is_viewer_running
+            from image_viewer import config as iv_config
         except Exception:
             st.caption("🔍 独立图片查看器（模块不可用，已跳过）")
             return
@@ -1080,7 +1096,8 @@ class SettingsMixin:
                         st.warning("当前组没有可查看的图片。")
                     else:
                         idx = 0
-                        ok, msg = open_image_viewer(images, current_index=idx, sample_id=group.get('id', ''))
+                        sc = iv_config.get_viewer_settings()["shortcuts"]
+                        ok, msg = open_image_viewer(images, current_index=idx, sample_id=group.get('id', ''), shortcuts=sc)
                         if not ok:
                             st.error(msg)
                         else:
@@ -1091,6 +1108,38 @@ class SettingsMixin:
                 st.caption("🟢 查看器运行中")
             else:
                 st.caption("⚪ 查看器未打开")
+
+        # ── 快捷键设置 ──
+        self._render_iviewer_shortcuts(iv_config)
+
+    def _render_iviewer_shortcuts(self, iv_config):
+        """图片查看器快捷键配置面板（复用项目设置系统持久化）"""
+        with st.expander("⌨️ 查看器快捷键设置", expanded=False):
+            st.caption("设置图片查看器的快捷键。修改后点「保存」立即生效并持久化；重启程序仍有效。")
+            cur = iv_config.get_viewer_settings()["shortcuts"]
+            keys = list(iv_config.DEFAULT_SHORTCUTS.keys())
+            inputs = {}
+            # 两列布局
+            for i in range(0, len(keys), 2):
+                r = st.columns(2)
+                chunk = keys[i:i + 2]
+                for j, k in enumerate(chunk):
+                    label = iv_config.SHORTCUT_LABELS.get(k, k)
+                    inputs[k] = r[j].text_input(label, value=cur.get(k, iv_config.DEFAULT_SHORTCUTS[k]),
+                                                key=f"_iv_short_{k}", label_visibility="collapsed")
+                    r[j].caption(label)
+            st.caption("支持组合键，如 Ctrl+Z、Shift+A；单键如 Left、Right、0、Esc、+、-。")
+            save_btn, reset_btn, _ = st.columns([1, 1, 0.2])
+            with save_btn:
+                if st.button("💾 保存快捷键", use_container_width=True, key="_iv_short_save"):
+                    iv_config.save_shortcuts(inputs)
+                    st.success("已保存并应用到打开/已运行的查看器。")
+                    st.rerun()
+            with reset_btn:
+                if st.button("↺ 恢复默认", use_container_width=True, key="_iv_short_reset"):
+                    iv_config.save_shortcuts(iv_config.DEFAULT_SHORTCUTS)
+                    st.success("已恢复默认快捷键。")
+                    st.rerun()
 
     def _render_hotkeys_section(self):
         """快捷键开关 + 说明面板"""

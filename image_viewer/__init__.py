@@ -36,7 +36,7 @@ def is_viewer_running():
     return protocol.is_viewer_alive()
 
 
-def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=True):
+def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=True, shortcuts=None):
     """打开（或复用）独立图片查看器。
 
     Args:
@@ -45,10 +45,13 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         sample_id: 当前样本/记录ID（用于显示与后续上传关系）
         total: 图片总数（默认取 len(images)）
         on_top: 打开时置顶显示
+        shortcuts: 快捷键映谢 dict（None 则查看器读取配置文件）
     """
     images = list(images or [])
     if not images:
         return False, "没有可查看的图片"
+
+    shortcuts = shortcuts or None
 
     payload = {
         "images": images,
@@ -57,6 +60,8 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         "sample_id": sample_id,
         "on_top": bool(on_top),
     }
+    if shortcuts is not None:
+        payload["shortcuts"] = shortcuts
 
     if protocol.is_viewer_alive():
         # 已存活：更新内容 + 请求前台激活（快速重开/唤醒）

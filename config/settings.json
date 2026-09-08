@@ -2,12 +2,23 @@
   "layout_width": 73,
   "layout_height": 85,
   "view_mode": "四宫格",
-  "root_path": "\\\\10.10.112.164\\硕智\\0828\\2026_08_28\\2026_08_28\\advertisement&poster\\鞋类（shoes）_分割2_82组",
+  "root_path": "D:\\SC\\0907\\0907_W07_150组_秦甩",
   "annotator_confirm_enabled": true,
-  "operator_name": "王少雄鞋类（shoes）_分割2_82组",
+  "operator_name": "王少雄0907_W07_150组_秦甩",
   "task_type": "新标",
   "enable_hotkeys": true,
   "textarea_mode": "auto",
   "textarea_height": 68,
-  "textarea_auto_max": 400
+  "textarea_auto_max": 400,
+  "image_viewer": {
+    "shortcuts": {
+      "prev": "Left",
+      "next": "Right",
+      "zoom_in": "+",
+      "zoom_out": "-",
+      "fit": "0",
+      "hundred": "1",
+      "close": "Esc"
+    }
+  }
 }
