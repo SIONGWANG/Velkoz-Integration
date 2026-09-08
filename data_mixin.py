@@ -280,6 +280,49 @@ class DataMixin:
 
         st.session_state.last_loaded_id = current_id
 
+    def _consume_viewer_uploads(self):
+        """消费独立查看器回传的截图上传：加入当前组的 evidence_pool。
+        只把截图作为证据加入，不自动改标签/状态/提交。上传队列为空则直接返回。"""
+        try:
+            from image_viewer import protocol as iv_protocol
+        except Exception:
+            return
+        entries = iv_protocol.pop_uploads()
+        if not entries:
+            return
+        from PIL import Image as _PILImage
+        current_id = str(st.session_state.get('current_id') or '')
+        pool_key = f"evidence_pool_{current_id}"
+        added = 0
+        missing = 0
+        for e in entries:
+            if not isinstance(e, dict) or e.get("kind") != "screenshot":
+                continue
+            path = e.get("path", "")
+            sid = str(e.get("sample_id", ""))
+            # 只把当前组（样本ID匹配）的截图并入；其他样本的暂不处理
+            if sid and current_id and sid != current_id:
+                continue
+            if not os.path.isfile(path):
+                missing += 1
+                continue
+            try:
+                img = _PILImage.open(path).copy()
+            except Exception:
+                missing += 1
+                continue
+            if pool_key not in st.session_state:
+                st.session_state[pool_key] = []
+            pool = st.session_state[pool_key]
+            if len(pool) >= 3:
+                continue
+            pool.append(img)
+            added += 1
+        if added or missing:
+            st.session_state[f"_viewer_upload_msg"] = f"已从图片查看器加入 {added} 张截图"
+            if missing:
+                st.session_state[f"_viewer_upload_msg"] += f"，{missing} 张无法读取"
+
     def reset_task_state(self):
         prefixes = ("preview_", "feedback_", "status_pills_", "paste_key_", "upload_btn_",
                     "_df_cache_", "_df_lookup_", "_last_tags_", "_manual_edit_", "_pending_tag_sync_",

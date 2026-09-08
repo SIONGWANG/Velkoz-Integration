@@ -66,6 +66,63 @@ def read_cmd():
         return None
 
 
+# ── 上传队列（查看器 -> 主程序） ──
+def uploads_path():
+    return os.path.join(runtime_dir(), "uploads.json")
+
+
+def push_upload(payload):
+    """查看器把一个已截取的截图追加到上传队列，主程序消费后清除。"""
+    _ensure_dir()
+    path = uploads_path()
+    queue = []
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    queue = data
+        except Exception:
+            queue = []
+    queue.append(payload)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(queue, f, ensure_ascii=False)
+    try:
+        os.replace(tmp, path)
+    except PermissionError:
+        import time as _t
+        for _ in range(5):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                _t.sleep(0.1)
+    return payload
+
+
+def pop_uploads():
+    """主程序读取并清空上传队列，返回条目列表。"""
+    path = uploads_path()
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            queue = data
+        else:
+            queue = []
+    except Exception:
+        queue = []
+    # 清空
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return queue
+
+
 # ── 锁 / 心跳（查看器侧） ──
 def write_lock(pid):
     """查看器启动时写锁文件，记录 PID 与当前时间。"""

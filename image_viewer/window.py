@@ -20,6 +20,21 @@ from .annotation import Annotation, TOOL_ARROW, TOOL_RECT, TOOL_ELLIPSE, TOOL_PE
 
 RESOLUTION = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
+
+def _relative_source(path):
+    """返回源图片的显示名（相对路径），用于来源关系记录。"""
+    if not path:
+        return ""
+    # 尽量转为项目相对路径；否则返回文件名
+    try:
+        from utils import BASE_DIR
+        rel = os.path.relpath(path, BASE_DIR)
+        if not rel.startswith(".."):
+            return rel
+    except Exception:
+        pass
+    return os.path.basename(path)
+
 # 缩放上下限（相对 100%）与每档步进
 ZOOM_MIN = 0.05
 ZOOM_MAX = 8.0
@@ -812,12 +827,15 @@ class ImageViewerWindow(QMainWindow):
         lay.addWidget(note, 0)
 
         btns = QHBoxLayout()
+        upload_btn = QPushButton("📤 上传到质检")
+        upload_btn.setStyleSheet("background:#22c55e;color:white;font-weight:600;border-radius:5px;padding:6px 14px;")
         save_btn = QPushButton("💾 保存截图")
         save_btn.setStyleSheet("background:#6366f1;color:white;font-weight:600;border-radius:5px;padding:6px 14px;")
         recapture_btn = QPushButton("↺ 重新截图")
         recapture_btn.setStyleSheet("background:#2b2b2d;color:#e8e8e8;border-radius:5px;padding:6px 14px;")
         cancel_btn = QPushButton("✕ 取消")
         cancel_btn.setStyleSheet("background:#2b2b2d;color:#e8e8e8;border-radius:5px;padding:6px 14px;")
+        btns.addWidget(upload_btn)
         btns.addWidget(save_btn)
         btns.addWidget(recapture_btn)
         btns.addStretch()
@@ -826,14 +844,42 @@ class ImageViewerWindow(QMainWindow):
 
         saved_path = {"v": None}
 
+        def _save_crop(cap_dir, sample_id):
+            from . import capture as cap
+            base = os.path.join(cap_dir, str(sample_id))
+            path, err = cap.save_capture(cropped, base)
+            return path, err
+
+        def do_upload():
+            from . import capture as cap
+            cap_dir = cap.default_capture_dir()
+            os.makedirs(cap_dir, exist_ok=True)
+            sample_id = self._cmd.get("sample_id", "") or (os.path.basename(self._images[self._current]) if self._images else "capture")
+            path, err = _save_crop(cap_dir, sample_id)
+            if err:
+                QMessageBox.warning(dlg, "上传失败", err)
+                return
+            # 记录来源关系并推送到主程序上传队列
+            rel = _relative_source(self._images[self._current] if self._images else "")
+            from . import protocol as pr
+            pr.push_upload({
+                "kind": "screenshot",
+                "path": path,                       # 截图文件绝对路径
+                "sample_id": str(sample_id),        # 当前样本/记录ID
+                "source_image": rel,                # 源图片（相对/绝对路径）
+                "crop_rect": [image_rect.x(), image_rect.y(), image_rect.width(), image_rect.height()],
+                "ts": int(time.time()),
+            })
+            saved_path["v"] = path
+            dlg.accept()
+
         def do_save():
             from . import capture as cap
             # 保存到用户捕获目录
             cap_dir = cap.default_capture_dir()
             os.makedirs(cap_dir, exist_ok=True)
             sample_id = self._cmd.get("sample_id", "") or os.path.basename(self._images[self._current]) if self._images else "capture"
-            base = os.path.join(cap_dir, str(sample_id))
-            path, err = cap.save_capture(cropped, base)
+            path, err = _save_crop(cap_dir, sample_id)
             if err:
                 QMessageBox.warning(dlg, "保存失败", err)
             else:
@@ -848,6 +894,7 @@ class ImageViewerWindow(QMainWindow):
             self.act_capture.blockSignals(False)
             self._on_capture_toggle(True)
 
+        upload_btn.clicked.connect(do_upload)
         save_btn.clicked.connect(do_save)
         recapture_btn.clicked.connect(do_again)
         cancel_btn.clicked.connect(dlg.reject)

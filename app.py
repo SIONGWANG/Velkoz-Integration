@@ -97,7 +97,17 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
     def run(self):
         version = APP_VERSION
         st.set_page_config(layout="wide", page_title=f"{APP_NAME} V{version}")
-        
+
+        # 消费独立图片查看器回传的截图（加入当前组 evidence_pool）
+        try:
+            self._consume_viewer_uploads()
+            msg = st.session_state.get('_viewer_upload_msg')
+            if msg:
+                st.toast(f"🖼️ {msg}")
+                st.session_state.pop('_viewer_upload_msg', None)
+        except Exception:
+            pass
+
         st.markdown(MAIN_CSS + STATUS_BUTTON_JS, unsafe_allow_html=True)
 
         # 文本框高度脚本（固定/自适应），随设置注入
