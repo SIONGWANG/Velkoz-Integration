@@ -94,8 +94,39 @@ def release_lock():
         pass
 
 
+def _pid_alive(pid):
+    """跨平台判断进程是否存活。Windows 用 ctypes 打开进程句柄，不需 psutil。"""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            # 返回非零表示进程仍在
+            code = wintypes.DWORD(0)
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    else:
+        # posix: os.kill(pid, 0) 无异常则存活
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+
 def is_viewer_alive(timeout=None):
-    """判断查看器是否存活。依据：锁文件存在且心跳未超时。"""
+    """判断查看器是否存活。依据：锁文件存在、心跳未超时、且 PID 确实在运行。"""
     if timeout is None:
         timeout = HEARTBEAT_TIMEOUT
     p = lock_path()
@@ -105,6 +136,9 @@ def is_viewer_alive(timeout=None):
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
         beat = float(data.get("beat", 0))
-        return (time.time() - beat) < timeout
+        if (time.time() - beat) >= timeout:
+            return False
+        # 心跳新鲜但 PID 已死（硬崩溃/残留锁）→ 视为未存活
+        return _pid_alive(data.get("pid", 0))
     except Exception:
         return False

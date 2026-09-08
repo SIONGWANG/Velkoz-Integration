@@ -32,7 +32,9 @@ class ViewerRunner:
         self.acquire_lock()
         self._start_heartbeat()
         self._start_watch()
+        # 窗口销毁 / 应用退出双保险释放锁
         self.window.destroyed.connect(self.shutdown)
+        self.app.aboutToQuit.connect(self.shutdown)
 
     def acquire_lock(self):
         # 若已有存活实例锁（本进程对象），刷新即可；否则写新锁
@@ -94,6 +96,9 @@ class ViewerRunner:
         images = cmd.get("images", [])
         idx = cmd.get("current_index", 0)
         self.window.set_images(images, idx)
+        # 若主程序请求置于前台（再次打开时唤醒）
+        if cmd.get("activate"):
+            self.window.bring_to_front()
 
     def shutdown(self):
         if self._have_lock:
