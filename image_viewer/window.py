@@ -378,8 +378,8 @@ class ImageViewerWindow(QMainWindow):
         self._redo_stack = []
         self._tool = TOOL_RECT          # 当前工具
         self._color = "#ef4444"
-        self._pen_width = 4.0           # 原图像素线宽
-        self._font_size = 32.0          # 原图像素字号
+        self._pen_width = 8.0           # 原图像素线宽（默认加粗，易于观察）
+        self._font_size = 36.0          # 原图像素字号
         self._select_rect = None        # 选择工具的框选矩形（场景坐标）
 
         # 应用图标 + 视觉样式

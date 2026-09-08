@@ -132,8 +132,9 @@ def _draw_arrow_head(painter, points, width):
     p0 = points[0]
     p1 = points[-1]
     angle = math.atan2(p1.y() - p0.y(), p1.x() - p0.x())
-    arrow_len = max(8.0, width * 3.5)
-    spread = math.radians(25)
+    # 箭头头放大、张角略大，更醒目；按线宽比例
+    arrow_len = max(12.0, width * 4.5)
+    spread = math.radians(28)
     left = QPointF(
         p1.x() - arrow_len * math.cos(angle - spread),
         p1.y() - arrow_len * math.sin(angle - spread),
