@@ -8,7 +8,8 @@
 import sys
 import os
 
-from PySide6.QtCore import QTimer, QFileSystemWatcher
+from PySide6.QtCore import QTimer, QFileSystemWatcher, Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from . import protocol
@@ -107,6 +108,13 @@ class ViewerRunner:
 
 
 def main():
+    # 高DPI 原生渲染：使用整数缩放比例，避免 125%/150% 缩放导致图像发虚
+    try:
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+    except Exception:
+        pass
     # 子进程内确保无重复 QApplication（独立进程必然无；保险处理）
     app = QApplication.instance() or QApplication(sys.argv)
     runner = ViewerRunner(app)

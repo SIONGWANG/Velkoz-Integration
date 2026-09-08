@@ -78,6 +78,23 @@ class ImageCanvas(QGraphicsView):
         self.setScene(self._scene)
         self.setAcceptDrops(False)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        # 自适应渲染质量，初始为平滑（缩小时）
+        self._apply_quality()
+
+    # ── 自适应渲染质量 ──
+    def _apply_quality(self):
+        """依据当前缩放比例切换渲染策略：
+        - 放大到 >=100%：关闭平滑，像素级清晰（边缘锐利）
+        - 缩小到 <100%：开启平滑下采样，避免粗糙锯齿
+        -->
+        Real image data is always used (no permanent resize); only the
+        display hint changes."""
+        z = self.transform().m11()
+        if z >= 0.98:
+            self.setRenderHint(QPainter.SmoothPixmapTransform, False)
+        else:
+            self.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        self.setRenderHint(QPainter.Antialiasing, True)
 
     # ── 图片加载 ──
     def load_image(self, path):
@@ -168,6 +185,7 @@ class ImageCanvas(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def _notify_status(self):
+        self._apply_quality()
         self._owner.update_status(self._image_size, self.transform().m11())
 
 
