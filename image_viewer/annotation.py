@@ -161,6 +161,34 @@ def annotations_to_pixmap(base_pixmap, annotations, scale=1.0):
     return out
 
 
+def translate(annotation, dx, dy):
+    """按偏移平移标注的所有点（返回新 Annotation，不改原对象）。"""
+    import copy
+    a = copy.copy(annotation)
+    a.points = [QPointF(p.x() + dx, p.y() + dy) for p in annotation.points]
+    return a
+
+
+def bake_annotations_onto_crop(crop_pixmap, annotations, crop_rect, clip=True):
+    """把标注叠加到裁剪结果上。
+    - crop_rect: 原图坐标系的裁剪选区（QRect/QRectF）
+    - 标注以原图坐标存储，需平移到裁剪坐标系（减 crop_rect.topLeft()）
+    - clip=True 时用裁剪范围作 clip，避免标注溢出；但这样只显示框内的标注。
+      clip=False 时绘出完整标注（含超出部分，可能延伸到裁剪图边缘）。
+    返回新的 QPixmap（不修改 crop_pixmap / 原图）。"""
+    dx = -crop_rect.x()
+    dy = -crop_rect.y()
+    out = QPixmap(crop_pixmap)
+    painter = QPainter(out)
+    painter.setRenderHint(QPainter.Antialiasing)
+    translated = [translate(a, dx, dy) for a in annotations]
+    if clip:
+        painter.setClipRect(QRectF(0, 0, out.width(), out.height()))
+    draw_annotations(painter, translated, scale=1.0, in_image_space=True)
+    painter.end()
+    return out
+
+
 def annotation_bbox(annotations):
     """所有标注的联合包围盒（原图坐标 QRectF）。"""
     bbox = QRectF()

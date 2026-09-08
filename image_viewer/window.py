@@ -341,12 +341,14 @@ class ImageCanvas(QGraphicsView):
                 a = Annotation(type_=tool, points=list(pts), color=owner.current_color(),
                                width=owner.current_pen_width(), font_size=owner.current_font_size())
                 draw_annotations(painter, [a], scale=scale, in_image_space=True)
-        # 选择框高亮
+        # 选择框高亮（醒目）
         if self._mode == "select":
             sel = owner.get_sel_rect()
             if sel is not None and not sel.isNull():
-                painter.setPen(QPen(QColor("#22c55e"), 2, Qt.DashLine))
-                painter.setBrush(Qt.NoBrush)
+                # 半透明填充 + 亮绿加粗虚线
+                fill = QColor("#22c55e"); fill.setAlpha(40)
+                painter.setBrush(QBrush(fill))
+                painter.setPen(QPen(QColor("#22c55e"), 3, Qt.DashLine))
                 painter.drawRect(sel)
         super().drawForeground(painter, rect)
 
@@ -555,14 +557,14 @@ class ImageViewerWindow(QMainWindow):
 
         # 撤销 / 重做
         self.act_undo = QAction("↺ 撤销", self)
-        self.act_undo.setShortcut("Ctrl+Z")
+        self.act_undo.setShortcuts(["Ctrl+Z"])
         self.act_undo.setToolTip("撤销 (Ctrl+Z)")
         self.act_undo.triggered.connect(self.undo)
         tb.addAction(self.act_undo)
 
         self.act_redo = QAction("↻ 重做", self)
-        self.act_redo.setShortcut("Ctrl+Y")
-        self.act_redo.setToolTip("重做 (Ctrl+Y)")
+        self.act_redo.setShortcuts(["Ctrl+Y", "Ctrl+Shift+Z"])
+        self.act_redo.setToolTip("重做 (Ctrl+Y / Ctrl+Shift+Z)")
         self.act_redo.triggered.connect(self.redo)
         tb.addAction(self.act_redo)
 
@@ -700,8 +702,9 @@ class ImageViewerWindow(QMainWindow):
             self.setCursor(Qt.OpenHandCursor)
 
     def on_capture(self, image_rect):
-        """画布框选完成后回调：从原图裁剪 -> 预览 -> 保存。"""
+        """画布框选完成后回调：从原图裁剪 -> 叠加标注 -> 预览 -> 保存。"""
         from . import capture
+        from .annotation import bake_annotations_onto_crop
         # 退出截图模式（按钮取消选中）
         if self.act_capture.isChecked():
             self.act_capture.blockSignals(True)
@@ -717,6 +720,10 @@ class ImageViewerWindow(QMainWindow):
         if cropped is None:
             self.statusBar().showMessage(err or "裁剪失败。", 6000)
             return
+        # 关键：把当前标注烧录进截图（标注以原图坐标存储，平移到裁剪坐标系）
+        annotations = list(self.get_annotations())
+        if annotations:
+            cropped = bake_annotations_onto_crop(cropped, annotations, image_rect, clip=False)
         self._capture_preview(cropped, image_rect)
 
     def _capture_preview(self, cropped, image_rect):
@@ -744,7 +751,9 @@ class ImageViewerWindow(QMainWindow):
             scaled = cropped.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         img_lbl.setPixmap(scaled)
         lay.addWidget(img_lbl, 1)
-        lay.addWidget(L(f"裁剪来源：直接从原图数据裁剪，非屏幕截图。"), 0)
+        note = QLabel(f"裁剪来源：直接从原图数据裁剪，非屏幕截图。已叠加当前图片的标注。")
+        note.setStyleSheet("color:#9aa4f2;")
+        lay.addWidget(note, 0)
 
         btns = QHBoxLayout()
         save_btn = QPushButton("💾 保存截图")
