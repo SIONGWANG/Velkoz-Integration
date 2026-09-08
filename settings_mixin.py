@@ -1066,7 +1066,7 @@ class SettingsMixin:
         self._render_image_viewer_section()
 
     def _render_image_viewer_section(self):
-        """独立图片查看器：高分辨率原图查看（Phase 1）+ 快捷键设置（Phase 2）"""
+        """独立图片查看器：模式切换(Phase 6) + 快捷键设置(Phase 2)"""
         try:
             from image_viewer import open_image_viewer, is_viewer_running
             from image_viewer import config as iv_config
@@ -1074,42 +1074,79 @@ class SettingsMixin:
             st.caption("🔍 独立图片查看器（模块不可用，已跳过）")
             return
         st.divider()
-        st.caption("🔍 独立图片查看器")
+        st.caption("🔍 图片查看")
         group = None
         cid = st.session_state.get('current_id')
         for g in st.session_state.get('data_groups', []):
             if str(g.get('id')) == str(cid):
                 group = g
                 break
+
+        # ── 查看器模式：内置 / 系统默认 ──
+        mode = iv_config.get_viewer_mode()
+        mode_labels = iv_config.VIEWER_MODE_LABELS
+        sel_mode = st.radio(
+            "打开方式",
+            options=[iv_config.MODE_BUILTIN, iv_config.MODE_SYSTEM],
+            format_func=lambda m: mode_labels.get(m, m),
+            index=0 if mode == iv_config.MODE_BUILTIN else 1,
+            key="_iviewer_mode",
+            horizontal=True,
+        )
+        if sel_mode != mode:
+            iv_config.save_viewer_mode(sel_mode)
+            st.session_state['_iviewer_opened'] = False
+            st.rerun()
+
         click_col, status_col = st.columns([1.5, 1])
         with click_col:
-            btn_label = "🔍 打开独立图片查看器"
-            button = st.button(btn_label, use_container_width=True, key="_iviewer_open")
-            if button:
-                if not group:
-                    st.warning("请先加载并进入某组数据，再打开查看器。")
-                else:
-                    root = group.get('root', '')
-                    images = [os.path.join(root, f) for f in group.get('images', [])]
-                    images = [p for p in images if os.path.isfile(p)]
-                    if not images:
-                        st.warning("当前组没有可查看的图片。")
+            if mode == iv_config.MODE_BUILTIN:
+                btn_label = "🔍 打开内置图片查看器"
+                button = st.button(btn_label, use_container_width=True, key="_iviewer_open")
+                if button:
+                    if not group:
+                        st.warning("请先加载并进入某组数据，再打开查看器。")
                     else:
-                        idx = 0
-                        sc = iv_config.get_viewer_settings()["shortcuts"]
-                        ok, msg = open_image_viewer(images, current_index=idx, sample_id=group.get('id', ''), shortcuts=sc)
-                        if not ok:
-                            st.error(msg)
+                        root = group.get('root', '')
+                        images = [os.path.join(root, f) for f in group.get('images', [])]
+                        images = [p for p in images if os.path.isfile(p)]
+                        if not images:
+                            st.warning("当前组没有可查看的图片。")
                         else:
-                            st.session_state['_iviewer_opened'] = True
-                            st.rerun()
-        with status_col:
-            if st.session_state.get('_iviewer_opened') and is_viewer_running():
-                st.caption("🟢 查看器运行中")
+                            idx = 0
+                            sc = iv_config.get_viewer_settings()["shortcuts"]
+                            ok, msg = open_image_viewer(images, current_index=idx, sample_id=group.get('id', ''), shortcuts=sc)
+                            if not ok:
+                                st.error(msg)
+                            else:
+                                st.session_state['_iviewer_opened'] = True
+                                st.rerun()
             else:
-                st.caption("⚪ 查看器未打开")
+                btn_label = "🖼️ 用系统默认查看器打开"
+                button = st.button(btn_label, use_container_width=True, key="_iviewer_open_sys")
+                if button:
+                    if not group:
+                        st.warning("请先加载并进入某组数据。")
+                    else:
+                        root = group.get('root', '')
+                        images = [os.path.join(root, f) for f in group.get('images', [])]
+                        images = [p for p in images if os.path.isfile(p)]
+                        if not images:
+                            st.warning("当前组没有可查看的图片。")
+                        else:
+                            # 打开当前原图（第一张）到系统默认查看器
+                            self.open_in_system(images[0])
+                            st.caption(f"已用系统默认查看器打开：{os.path.basename(images[0])}")
+        with status_col:
+            if mode == iv_config.MODE_BUILTIN:
+                if st.session_state.get('_iviewer_opened') and is_viewer_running():
+                    st.caption("🟢 内置查看器运行中")
+                else:
+                    st.caption("⚪ 内置查看器未打开")
+            else:
+                st.caption("🖼️ 系统默认查看器")
 
-        # ── 快捷键设置 ──
+        # ── 快捷键设置（仅内置模式需要） ──
         self._render_iviewer_shortcuts(iv_config)
 
     def _render_iviewer_shortcuts(self, iv_config):

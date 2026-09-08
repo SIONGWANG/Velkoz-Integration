@@ -26,6 +26,16 @@ DEFAULT_SHORTCUTS = {
 # 平移方式默认：鼠标右键拖动
 DEFAULT_PAN_BUTTON = "right"
 
+# 查看器模式：内置 Image Viewer / 系统默认查看器
+MODE_BUILTIN = "builtin"     # 使用本次新增的独立 Image Viewer
+MODE_SYSTEM = "system"       # 沿用系统默认图片打开方式
+DEFAULT_VIEWER_MODE = MODE_BUILTIN
+
+VIEWER_MODE_LABELS = {
+    MODE_BUILTIN: "内置图片查看器",
+    MODE_SYSTEM: "系统默认查看器",
+}
+
 # 小写后 -> 中文显示名（用于主程序配置面板）
 SHORTCUT_LABELS = {
     "prev": "上一张",
@@ -81,7 +91,27 @@ def get_viewer_settings():
     return {
         "shortcuts": merged,
         "pan_button": v.get("pan_button", DEFAULT_PAN_BUTTON),
+        "viewer_mode": v.get("viewer_mode", DEFAULT_VIEWER_MODE),
     }
+
+
+def save_viewer_mode(mode):
+    """保存查看器模式（builtin/system），持久化到 settings.json。"""
+    if mode not in (MODE_BUILTIN, MODE_SYSTEM):
+        mode = DEFAULT_VIEWER_MODE
+    all_data = _read_all()
+    if not isinstance(all_data, dict):
+        all_data = {}
+    v = all_data.get("image_viewer", {}) or {}
+    if not isinstance(v, dict):
+        v = {}
+    v["viewer_mode"] = mode
+    all_data["image_viewer"] = v
+    _write_all(all_data)
+
+
+def get_viewer_mode():
+    return get_viewer_settings().get("viewer_mode", DEFAULT_VIEWER_MODE)
 
 
 def save_shortcuts(shortcuts):
