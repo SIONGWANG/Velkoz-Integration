@@ -31,6 +31,10 @@ def lock_path():
     return os.path.join(runtime_dir(), "lock.json")
 
 
+def log_path():
+    return os.path.join(runtime_dir(), "viewer.log")
+
+
 # ── 命令写入（主程序侧） ──
 def write_cmd(payload):
     """原子写入命令文件。payload 为 dict，会被整包替换。

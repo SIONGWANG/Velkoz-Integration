@@ -75,18 +75,28 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         env = dict(os.environ)
         # 确保 subprocess 能 import image_viewer 包
         env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")
-        subprocess.Popen(
-            _subprocess_cmd(),
-            cwd=PROJECT_ROOT,
-            env=env,
-            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | getattr(subprocess, "DETACHED_PROCESS", 0),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-        return True, ""
+        # 子进程 stderr 写到日志文件，便于定位启动失败原因
+        log_path = protocol.log_path()
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as logf:
+            subprocess.Popen(
+                _subprocess_cmd(),
+                cwd=PROJECT_ROOT,
+                env=env,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0),
+                stdin=subprocess.DEVNULL,
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+            )
+        # 等待心跳，确认子进程已真正起来（避免"看似成功实则失败"）
+        import time as _time
+        for _ in range(30):
+            if protocol.is_viewer_alive():
+                return True, ""
+            _time.sleep(0.2)
+        return False, "查看器启动超时，请查看日志或关闭残留进程后重试"
     except Exception as e:
         return False, f"启动图片查看器失败：{e}"
 
