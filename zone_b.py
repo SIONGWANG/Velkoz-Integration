@@ -384,8 +384,9 @@ class ZoneBMixin:
                     with cc1:
                         st.caption(res)
                     with cc2:
-                        st.button("📂", key=f"open_bimg_{group['id']}_{i}", help=f"双击图片或用此按钮在系统查看器中打开 {img}", use_container_width=True,
-                                  on_click=self.open_in_system, args=(p,))
+                        if st.button("📂", key=f"open_bimg_{group['id']}_{i}", help=f"打开图片（按所选方式）", use_container_width=True,
+                                     on_click=self._open_viewer_app):
+                            pass
             # 双击图片 → 触发对应 📂 按钮
             components.html("""
             <script>
@@ -404,7 +405,7 @@ class ZoneBMixin:
                     if (!img || img.dataset.dblclicked) return;
                     img.dataset.dblclicked = '1';
                     img.style.cursor = 'pointer';
-                    img.title = '双击在系统查看器中打开';
+                    img.title = '双击打开图片（按所选查看器方式）';
                     img.addEventListener('dblclick', function(e) {
                         e.preventDefault();
                         e.stopPropagation();
