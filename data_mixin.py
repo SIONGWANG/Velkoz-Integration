@@ -8,6 +8,7 @@ import logging
 import json
 import hashlib
 import pandas as pd
+from PIL import Image as PILImage
 
 from utils import (
     BASE_DIR, DEFAULT_CATEGORIES,
@@ -238,6 +239,26 @@ class DataMixin:
 
             st.session_state.pop(f"freq_pills_{current_id}", None)
             st.session_state.pop(f"other_pills_{current_id}", None)
+
+            # 恢复已保存的截图到 evidence_pool
+            pool_key = f"evidence_pool_{current_id}"
+            if pool_key not in st.session_state or not st.session_state[pool_key]:
+                img_paths_str = str(found_record.get('错误截图', '')) if pd.notna(found_record.get('错误截图', '')) else ''
+                if img_paths_str and img_paths_str != 'nan':
+                    loaded_images = []
+                    for rel_path in img_paths_str.split(';'):
+                        rel_path = rel_path.strip()
+                        if not rel_path:
+                            continue
+                        full_path = os.path.join(BASE_DIR, rel_path)
+                        if os.path.exists(full_path):
+                            try:
+                                loaded_images.append(PILImage.open(full_path).copy())
+                            except Exception:
+                                pass
+                    st.session_state[pool_key] = loaded_images
+                else:
+                    st.session_state[pool_key] = []
         else:
             st.session_state.sticky_l2 = None
             st.session_state['status_pills'] = None
