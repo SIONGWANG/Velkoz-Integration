@@ -6,7 +6,7 @@
 import os
 
 from PySide6.QtCore import Qt, QRectF, QSize, QPointF, QPoint
-from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen
+from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen, QShortcut
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
     QGraphicsRectItem, QStatusBar, QLabel, QToolBar, QApplication, QStyle,
@@ -401,6 +401,7 @@ class ImageViewerWindow(QMainWindow):
 
         # 应用快捷键（覆盖硬编码默认值）
         self._apply_shortcuts()
+        self._register_shortcuts()
 
         # 置顶（可在打开时切换）
         if self._on_top:
@@ -436,6 +437,25 @@ class ImageViewerWindow(QMainWindow):
                     act.setToolTip(f"{act.text()} ({seq})" if seq else act.text())
                 except Exception:
                     pass
+
+    def _register_shortcuts(self):
+        """用 QShortcut 注册关键快捷键：即使焦点在画布(QGraphicsView 会吞按键)也能触发。
+        撤销 / 重做 / 删除所选。QShortcut 默认上下文为窗口级。"""
+        try:
+            self._sc_undo = QShortcut(QKeySequence("Ctrl+Z"), self)
+            self._sc_undo.activated.connect(self.undo)
+
+            self._sc_redo = QShortcut(QKeySequence("Ctrl+Y"), self)
+            self._sc_redo.activated.connect(self.redo)
+            # 兼容 Ctrl+Shift+Z
+            self._sc_redo2 = QShortcut(QKeySequence("Ctrl+Shift+Z"), self)
+            self._sc_redo2.activated.connect(self.redo)
+
+            self._sc_del = QShortcut(QKeySequence("Delete"), self)
+            self._sc_del.activated.connect(self.delete_selected)
+        except Exception as e:
+            import logging
+            logging.warning("注册查看器快捷键失败: %s", e)
 
     def set_shortcuts(self, shortcuts):
         self._shortcuts = shortcuts or viewer_config.DEFAULT_SHORTCUTS
@@ -555,21 +575,18 @@ class ImageViewerWindow(QMainWindow):
 
         tb.addSeparator()
 
-        # 撤销 / 重做
+        # 撤销 / 重做（快捷键用 QShortcut 注册，见 _register_shortcuts）
         self.act_undo = QAction("↺ 撤销", self)
-        self.act_undo.setShortcuts(["Ctrl+Z"])
         self.act_undo.setToolTip("撤销 (Ctrl+Z)")
         self.act_undo.triggered.connect(self.undo)
         tb.addAction(self.act_undo)
 
         self.act_redo = QAction("↻ 重做", self)
-        self.act_redo.setShortcuts(["Ctrl+Y", "Ctrl+Shift+Z"])
         self.act_redo.setToolTip("重做 (Ctrl+Y / Ctrl+Shift+Z)")
         self.act_redo.triggered.connect(self.redo)
         tb.addAction(self.act_redo)
 
         self.act_del = QAction("🗑 删除所选", self)
-        self.act_del.setShortcut("Delete")
         self.act_del.setToolTip("删除所选标注 (Delete)")
         self.act_del.triggered.connect(self.delete_selected)
         tb.addAction(self.act_del)
