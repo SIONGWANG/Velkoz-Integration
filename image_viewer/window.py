@@ -6,7 +6,7 @@
 import os
 
 from PySide6.QtCore import Qt, QRectF, QSize, QPointF, QPoint
-from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen, QShortcut
+from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
     QGraphicsRectItem, QStatusBar, QLabel, QToolBar, QApplication, QStyle,
@@ -356,6 +356,33 @@ class ImageCanvas(QGraphicsView):
         self._apply_quality()
         self._owner.update_status(self._image_size, self.transform().m11())
 
+    # ── 键盘：处理撤销/重做/删除/关闭，确保焦点在画布时也能生效 ──
+    def keyPressEvent(self, event):
+        mods = event.modifiers()
+        key = event.key()
+        ctrl = bool(mods & Qt.ControlModifier)
+        shift = bool(mods & Qt.ShiftModifier)
+        if ctrl and key == Qt.Key_Z:
+            if shift:
+                self._owner.redo()
+            else:
+                self._owner.undo()
+            event.accept()
+            return
+        if ctrl and key == Qt.Key_Y:
+            self._owner.redo()
+            event.accept()
+            return
+        if key == Qt.Key_Delete:
+            self._owner.delete_selected()
+            event.accept()
+            return
+        if key == Qt.Key_Escape:
+            self._owner.close()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
 
 class ImageViewerWindow(QMainWindow):
     """独立图片查看器主窗口。"""
@@ -401,7 +428,6 @@ class ImageViewerWindow(QMainWindow):
 
         # 应用快捷键（覆盖硬编码默认值）
         self._apply_shortcuts()
-        self._register_shortcuts()
 
         # 置顶（可在打开时切换）
         if self._on_top:
@@ -438,25 +464,6 @@ class ImageViewerWindow(QMainWindow):
                 except Exception:
                     pass
 
-    def _register_shortcuts(self):
-        """用 QShortcut 注册关键快捷键：即使焦点在画布(QGraphicsView 会吞按键)也能触发。
-        撤销 / 重做 / 删除所选。QShortcut 默认上下文为窗口级。"""
-        try:
-            self._sc_undo = QShortcut(QKeySequence("Ctrl+Z"), self)
-            self._sc_undo.activated.connect(self.undo)
-
-            self._sc_redo = QShortcut(QKeySequence("Ctrl+Y"), self)
-            self._sc_redo.activated.connect(self.redo)
-            # 兼容 Ctrl+Shift+Z
-            self._sc_redo2 = QShortcut(QKeySequence("Ctrl+Shift+Z"), self)
-            self._sc_redo2.activated.connect(self.redo)
-
-            self._sc_del = QShortcut(QKeySequence("Delete"), self)
-            self._sc_del.activated.connect(self.delete_selected)
-        except Exception as e:
-            import logging
-            logging.warning("注册查看器快捷键失败: %s", e)
-
     def set_shortcuts(self, shortcuts):
         self._shortcuts = shortcuts or viewer_config.DEFAULT_SHORTCUTS
         self._qkeys = viewer_config.qkeys_for(self._shortcuts)
@@ -464,12 +471,21 @@ class ImageViewerWindow(QMainWindow):
 
     # ── UI 构建 ──
     def _build_toolbar(self):
-        tb = QToolBar("查看")
+        # 分两条工具栏，避免按钮过多被挤进折叠菜单导致不可见
+        self._build_toolbar_nav()
+        self._build_toolbar_annot()
+
+    def _mk_toolbar(self, name):
+        tb = QToolBar(name)
         tb.setMovable(False)
         tb.setFloatable(False)
         tb.setIconSize(QSize(18, 18))
+        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(tb)
+        return tb
 
+    def _build_toolbar_nav(self):
+        tb = self._mk_toolbar("查看")
         style = self.style()
         ic_prev = style.standardIcon(QStyle.SP_ArrowLeft)
         ic_next = style.standardIcon(QStyle.SP_ArrowRight)
@@ -536,10 +552,20 @@ class ImageViewerWindow(QMainWindow):
 
         tb.addSeparator()
 
+        self.act_quit = QAction("✕ 关闭", self)
+        self.act_quit.setShortcut("Esc")
+        self.act_quit.setToolTip("关闭 (Esc)")
+        self.act_quit.triggered.connect(self.close)
+        tb.addAction(self.act_quit)
+
+    def _build_toolbar_annot(self):
+        tb = self._mk_toolbar("标注")
+        tb.setStyleSheet(branding.window_qss())
+
         # ── 标注工具 ──
         self._tool_actions = {}
         tools = [
-            ("select", "⬚ 选择", "选择/移动标注"),
+            ("select", "⬚ 选择", "选择/删除标注"),
             ("arrow", "↗ 箭头", "画箭头"),
             ("rect", "▭ 矩形", "画矩形"),
             ("ellipse", "◯ 椭圆", "画椭圆"),
@@ -575,7 +601,7 @@ class ImageViewerWindow(QMainWindow):
 
         tb.addSeparator()
 
-        # 撤销 / 重做（快捷键用 QShortcut 注册，见 _register_shortcuts）
+        # 撤销 / 重做（快捷键在画布 keyPressEvent 中处理）
         self.act_undo = QAction("↺ 撤销", self)
         self.act_undo.setToolTip("撤销 (Ctrl+Z)")
         self.act_undo.triggered.connect(self.undo)
@@ -590,12 +616,6 @@ class ImageViewerWindow(QMainWindow):
         self.act_del.setToolTip("删除所选标注 (Delete)")
         self.act_del.triggered.connect(self.delete_selected)
         tb.addAction(self.act_del)
-
-        self.act_quit = QAction("✕ 关闭 (Esc)", self)
-        self.act_quit.setShortcut("Esc")
-        self.act_quit.triggered.connect(self.close)
-        tb.addSeparator()
-        tb.addAction(self.act_quit)
 
     def _build_statusbar(self):
         status = QStatusBar()
