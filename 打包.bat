@@ -4,11 +4,11 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 :: ============================================================
-::  开发者工具 — 一键打包 Vel'Koz V1.21.0
-::  生成 Vel'Koz_V1.21.0.zip 发布包
+::  开发者工具 — 一键打包 Vel'Koz V1.21.1
+::  生成 Vel'Koz_V1.21.1.zip 发布包
 :: ============================================================
 
-set "VERSION=1.21.0"
+set "VERSION=1.21.1"
 set "OUTPUT_NAME=Vel'Koz_V%VERSION%"
 set "STAGE_DIR=_package_staging"
 
