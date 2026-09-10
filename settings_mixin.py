@@ -645,6 +645,7 @@ class SettingsMixin:
         has_imported = st.session_state.get("_import_done", False)
 
         if embedded:
+            st.caption("📥 质检记录恢复（上传以前导出的质检 Excel，恢复验收结果与错误截图）")
             self._render_excel_importer_body(data_loaded, has_imported)
         else:
             with st.expander("📥 质检记录恢复", expanded=False):
