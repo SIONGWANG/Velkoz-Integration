@@ -1,11 +1,110 @@
 # excel_importer.py — 质检记录恢复：Excel 解析 / 匹配 / 预览 / 恢复
 import os
+import time
 import pandas as pd
 import datetime
 
 VALID_RESULTS = {"合格", "不合格", "修改后合格", "待定"}
 REQUIRED_COL_ID = "图片ID"
 CSV_COLUMNS = ["姓名", "图片ID", "一级", "二级", "结果", "备注", "标签", "错误截图", "质检时间", "路径"]
+
+
+def _find_id_column_index(ws):
+    """在表头行定位「图片ID」列的 1-based 索引；找不到返回 None。"""
+    header = list(ws[1]) if ws.max_row >= 1 else []
+    for i, cell in enumerate(header, start=1):
+        v = cell.value
+        if isinstance(v, str) and v.strip().lower() in ("图片id", "imageid", "id"):
+            return i
+    for i, cell in enumerate(header, start=1):
+        v = cell.value
+        if isinstance(v, str) and ("id" in v.lower() or "图片" in v):
+            return i
+    return None
+
+
+def extract_embedded_images(uploaded_file, evidence_dir):
+    """从上传的 Excel 中提取内嵌的错误截图，按所在行映射到记录ID，
+    按旧命名规则 {图片ID}_{时间戳}_{序号}.png 保存到证据目录。
+
+    用于截图文件已丢失（如换电脑、旧版本截图存在软件目录）时，从 Excel
+    自带的嵌入图片恢复截图，保证导入后仍能查看。
+
+    返回 {record_id: [相对证据目录的路径, ...]}；失败返回 {}。
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return {}
+    try:
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(0)
+        wb = openpyxl.load_workbook(uploaded_file, read_only=False, data_only=True)
+    except Exception:
+        return {}
+    try:
+        ws = wb.active
+        images = getattr(ws, "_images", []) or []
+        if not images:
+            return {}
+        id_col = _find_id_column_index(ws)
+        if id_col is None:
+            return {}
+
+        row_id = {}
+        for r in range(2, ws.max_row + 1):
+            v = ws.cell(row=r, column=id_col).value
+            if v is not None and str(v).strip() and str(v).strip() != "nan":
+                row_id[r] = str(v).strip()
+
+        try:
+            os.makedirs(evidence_dir, exist_ok=True)
+        except Exception:
+            return {}
+        folder_name = os.path.basename(os.path.normpath(evidence_dir))
+
+        result = {}
+        counters = {}
+        for img in images:
+            row = None
+            try:
+                row = img.anchor._from.row + 1  # 0-based -> 1-based Excel 行
+            except Exception:
+                row = None
+            rid = row_id.get(row)
+            if not rid:
+                continue
+            try:
+                data = img._data()
+            except Exception:
+                data = None
+            if not data:
+                continue
+            ts = int(time.time())
+            idx = counters.get(rid, 0)
+            path = None
+            for _ in range(10000):
+                fname = f"{rid}_{ts}_{idx}.png"
+                cand = os.path.join(evidence_dir, fname)
+                if not os.path.exists(cand):
+                    path = cand
+                    break
+                idx += 1
+            if path is None:
+                continue
+            counters[rid] = idx + 1
+            try:
+                with open(path, "wb") as f:
+                    f.write(data)
+            except Exception:
+                continue
+            result.setdefault(rid, []).append(os.path.join(folder_name, fname))
+        return result
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
 
 
 def parse_excel(uploaded_file):

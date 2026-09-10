@@ -738,6 +738,28 @@ class SettingsMixin:
                     for item in preview["anomalies"]:
                         st.text(f"{item['id']}  —  {item['reason']}")
 
+            if preview["matched"]:
+                with st.expander(f"👀 预览将恢复的验收结果（{preview['total_matched']} 条）", expanded=False):
+                    try:
+                        import pandas as _pd
+                        preview_rows = []
+                        for item in preview["matched"][:200]:
+                            row = item["excel_row"]
+                            shot = str(row.get("错误截图", "") or "")
+                            shot_cnt = len([p for p in shot.split(";") if p.strip()])
+                            preview_rows.append({
+                                "图片ID": item["id"],
+                                "结果": row.get("结果", ""),
+                                "标签": row.get("标签", ""),
+                                "备注": str(row.get("备注", ""))[:40],
+                                "截图数": shot_cnt,
+                            })
+                        st.dataframe(_pd.DataFrame(preview_rows), use_container_width=True, height=280)
+                        if len(preview["matched"]) > 200:
+                            st.caption(f"... 仅显示前 200 条，共 {len(preview['matched'])} 条")
+                    except Exception as e:
+                        st.caption(f"预览生成失败：{e}")
+
             if not has_imported:
                 if preview["overwrite_count"] > 0:
                     st.warning(f"确认后，Excel中匹配到的历史质检结果将写入当前数据；如果当前已有相同ID的质检结果，将被Excel中的结果覆盖。")
@@ -747,11 +769,26 @@ class SettingsMixin:
                         st.error("未找到当前 CSV 路径")
                         return
                     current_csv = self._get_df() if hasattr(self, "_get_df") else None
+                    # 从 Excel 提取内嵌错误截图，按旧命名规则存到证据目录。
+                    # 这样即使截图文件已丢失（换电脑/旧版本存在软件目录），导入后仍能查看。
+                    extracted_count = 0
+                    try:
+                        from excel_importer import extract_embedded_images
+                        embedded = extract_embedded_images(uploaded, self.get_evidence_dir())
+                        if embedded:
+                            for item in preview["matched"]:
+                                rid = item["id"]
+                                if rid in embedded:
+                                    item["excel_row"]["错误截图"] = ";".join(embedded[rid])
+                            extracted_count = sum(len(v) for v in embedded.values())
+                    except Exception as e:
+                        logging.warning("Excel 内嵌截图提取失败: %s", e)
                     summary, err = apply_restore(preview, data_groups, current_csv, csv_path)
                     if err:
                         st.error(err)
                         return
                     summary["file_name"] = uploaded.name
+                    summary["extracted_screenshots"] = extracted_count
                     st.session_state["_import_done"] = True
                     st.session_state["_import_summary"] = summary
                     # Clear all CSV caches to force fresh read
@@ -774,6 +811,8 @@ class SettingsMixin:
                     st.metric("Excel记录", f"{summary.get('total_excel', 0)} 条")
                     st.metric("保持原状态", f"{summary.get('unmatched_current', 0)} 条")
                     st.metric("异常记录", f"{summary.get('duplicates', 0) + summary.get('anomalies', 0)} 条")
+                if summary.get("extracted_screenshots"):
+                    st.success(f"🖼️ 已从 Excel 提取并恢复 {summary['extracted_screenshots']} 张错误截图")
                 st.info("恢复的数据已经进入正常质检流程，可以继续修改和提交。")
 
     @staticmethod
