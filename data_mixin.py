@@ -8,7 +8,6 @@ import logging
 import json
 import hashlib
 import pandas as pd
-from PIL import Image as PILImage
 
 from utils import (
     BASE_DIR, DEFAULT_CATEGORIES,
@@ -240,7 +239,7 @@ class DataMixin:
             st.session_state.pop(f"freq_pills_{current_id}", None)
             st.session_state.pop(f"other_pills_{current_id}", None)
 
-            # 恢复已保存的截图到 evidence_pool
+            # 恢复已保存的截图到 evidence_pool（存解析后的绝对路径，供查看/复用）
             pool_key = f"evidence_pool_{current_id}"
             if pool_key not in st.session_state or not st.session_state[pool_key]:
                 img_paths_str = str(found_record.get('错误截图', '')) if pd.notna(found_record.get('错误截图', '')) else ''
@@ -250,12 +249,9 @@ class DataMixin:
                         rel_path = rel_path.strip()
                         if not rel_path:
                             continue
-                        full_path = os.path.join(BASE_DIR, rel_path)
-                        if os.path.exists(full_path):
-                            try:
-                                loaded_images.append(PILImage.open(full_path).copy())
-                            except Exception:
-                                pass
+                        full_path = self._resolve_screenshot_path(rel_path)
+                        if full_path:
+                            loaded_images.append(full_path)
                     st.session_state[pool_key] = loaded_images
                 else:
                     st.session_state[pool_key] = []
@@ -290,7 +286,6 @@ class DataMixin:
         entries = iv_protocol.pop_uploads()
         if not entries:
             return
-        from PIL import Image as _PILImage
         current_id = str(st.session_state.get('current_id') or '')
         pool_key = f"evidence_pool_{current_id}"
         added = 0
@@ -300,15 +295,10 @@ class DataMixin:
                 continue
             path = e.get("path", "")
             sid = str(e.get("sample_id", ""))
-            # 只把当前组（样本ID匹配）的截图并入；其他样本的暂不处理
+            # 只并入与当前样本匹配的截图；若查看器未带样本ID（兼容旧版本），则并入当前组
             if sid and current_id and sid != current_id:
                 continue
-            if not os.path.isfile(path):
-                missing += 1
-                continue
-            try:
-                img = _PILImage.open(path).copy()
-            except Exception:
+            if not path or not os.path.isfile(path):
                 missing += 1
                 continue
             if pool_key not in st.session_state:
@@ -316,7 +306,10 @@ class DataMixin:
             pool = st.session_state[pool_key]
             if len(pool) >= 3:
                 continue
-            pool.append(img)
+            # 去重：同一路径不重复加入，避免重复上传
+            if path in pool:
+                continue
+            pool.append(path)
             added += 1
         if added or missing:
             st.session_state[f"_viewer_upload_msg"] = f"已从图片查看器加入 {added} 张截图"
@@ -332,7 +325,7 @@ class DataMixin:
         except Exception:
             return
 
-        @st.fragment(run_every=3.0)
+        @st.fragment(run_every=1.0)
         def _fragment():
             # 在此消费上传并提示
             self._consume_viewer_uploads()
@@ -491,10 +484,59 @@ class DataMixin:
         date_str = datetime.datetime.now().strftime("%Y%m%d")
         return f"{task_type}_{operator}_{date_str}"
 
+    def get_data_root(self):
+        """当前质检数据根目录：优先 root_path（用户加载的任务目录），
+        未设置时回退到 BASE_DIR。截图目录、质检记录都以其为基准。"""
+        return st.session_state.get('root_path', '') or BASE_DIR
+
     def get_evidence_folder_name(self):
         """获取截图证据文件夹名称：_00_Evidence_{标签}"""
         task_type = st.session_state.get('task_type', '新标')
         return f"_00_Evidence_{task_type}"
+
+    def get_evidence_dir(self):
+        """错误截图最终目录：当前质检数据根目录 / _00_Evidence_{标签}。"""
+        return os.path.join(self.get_data_root(), self.get_evidence_folder_name())
+
+    def _rel_evidence_path(self, abs_path):
+        """把截图绝对路径转换为相对当前数据根目录的存储路径（与旧记录格式一致）。
+        若不在数据根目录下，退化为文件名。"""
+        if not abs_path:
+            return None
+        try:
+            rel = os.path.relpath(abs_path, self.get_data_root())
+        except Exception:
+            rel = os.path.basename(abs_path)
+        if rel.startswith(".."):
+            return os.path.basename(abs_path)
+        return rel
+
+    def _resolve_screenshot_path(self, rel_path):
+        """解析质检记录中保存的截图路径（兼容旧数据迁移）。
+
+        解析顺序：
+        1. 绝对路径直接存在 → 使用；
+        2. 当前数据根目录 + 相对路径；
+        3. BASE_DIR + 相对路径（旧版本记录兼容）；
+        4. 当前证据目录 + 文件名（仅文件名时的兜底）。
+        """
+        if not rel_path:
+            return None
+        rel_path = str(rel_path).strip()
+        if not rel_path:
+            return None
+        if os.path.isabs(rel_path) and os.path.isfile(rel_path):
+            return rel_path
+        data_root = self.get_data_root()
+        candidates = [
+            os.path.join(data_root, rel_path),
+            os.path.join(BASE_DIR, rel_path),
+            os.path.join(self.get_evidence_dir(), os.path.basename(rel_path)),
+        ]
+        for cand in candidates:
+            if os.path.isfile(cand):
+                return cand
+        return None
 
     def _scan_existing_csvs(self):
         """扫描当前操作员目录下所有历史验收记录 CSV，按日期倒序返回路径列表"""
@@ -569,11 +611,23 @@ class DataMixin:
         failed_screenshots = []
         if image_list:
             evidence_folder = self.get_evidence_folder_name()
-            evidence_dir = os.path.join(BASE_DIR, evidence_folder)
-            if not os.path.exists(evidence_dir): os.makedirs(evidence_dir)
+            evidence_dir = self.get_evidence_dir()
+            try:
+                os.makedirs(evidence_dir, exist_ok=True)
+            except Exception as e:
+                return False, f"❌ 无法创建截图目录 {evidence_dir}: {e}"
 
             timestamp = int(time.time())
             for i, img_obj in enumerate(image_list):
+                # 来自查看器/历史记录的截图已是文件路径，直接复用，避免重复保存
+                if isinstance(img_obj, str):
+                    rel_path = self._rel_evidence_path(img_obj)
+                    if rel_path and os.path.isfile(img_obj):
+                        saved_img_paths.append(rel_path)
+                    else:
+                        failed_screenshots.append(i + 1)
+                        logging.warning("截图 %d 文件不存在，已跳过: %s", i + 1, img_obj)
+                    continue
                 filename = f"{group['id']}_{timestamp}_{i}.png"
                 save_path = os.path.join(evidence_dir, filename)
                 try:

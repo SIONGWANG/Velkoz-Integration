@@ -323,11 +323,57 @@ class SettingsMixin:
             close_image_viewer()
             return "已关闭内置图片查看器。", True
         sc = iv_config.get_viewer_settings()["shortcuts"]
-        ok, msg = open_image_viewer(images, current_index=0, sample_id="",
+        ok, msg = open_image_viewer(images, current_index=0,
+                                    sample_id=str(st.session_state.get('current_id') or ''),
+                                    data_root=self.get_data_root(),
+                                    evidence_folder=self.get_evidence_folder_name(),
                                     shortcuts=sc)
         if not ok:
             return msg, False
         return "已打开内置图片查看器。", True
+
+    def _view_error_screenshots(self):
+        """查看当前记录已保存的错误截图 —— 始终使用内置 Viewer，绝不调用浏览器。
+        错误截图来源为质检记录（CSV 的「错误截图」列）中已有的路径。"""
+        cid = st.session_state.get('current_id')
+        if not cid:
+            return "当前没有选中的记录。", False
+        record = self._get_record_by_id(str(cid))
+        if record is None:
+            return "当前记录暂无已保存的错误截图。", False
+        try:
+            import pandas as pd
+            img_paths_str = str(record.get('错误截图', '')) if pd.notna(record.get('错误截图', '')) else ''
+        except Exception:
+            img_paths_str = str(record.get('错误截图', '')) if record.get('错误截图') is not None else ''
+        if not img_paths_str or img_paths_str == 'nan':
+            return "当前记录暂无已保存的错误截图。", False
+
+        paths = []
+        for rel_path in img_paths_str.split(';'):
+            rel_path = rel_path.strip()
+            if not rel_path:
+                continue
+            full = self._resolve_screenshot_path(rel_path)
+            if full:
+                paths.append(full)
+        if not paths:
+            return "错误截图文件不存在（可能已被移动或删除）。", False
+
+        try:
+            from image_viewer import open_image_viewer
+            from image_viewer import config as iv_config
+        except Exception as e:
+            return f"图片查看模块不可用：{e}", False
+
+        sc = iv_config.get_viewer_settings()["shortcuts"]
+        ok, msg = open_image_viewer(paths, current_index=0, sample_id=str(cid),
+                                    data_root=self.get_data_root(),
+                                    evidence_folder=self.get_evidence_folder_name(),
+                                    shortcuts=sc)
+        if not ok:
+            return msg, False
+        return f"已在内置查看器中打开 {len(paths)} 张错误截图。", True
 
     # ── 分类管理 ──
 

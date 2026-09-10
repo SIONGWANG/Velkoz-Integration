@@ -844,6 +844,7 @@ class ImageViewerWindow(QMainWindow):
         lay.addLayout(btns)
 
         saved_path = {"v": None, "action": None}   # action: "save" | "upload"
+        _uploading = {"v": False}                   # 防止重复点击上传
 
         def _save_crop(cap_dir, sample_id):
             from . import capture as cap
@@ -851,13 +852,31 @@ class ImageViewerWindow(QMainWindow):
             path, err = cap.save_capture(cropped, base)
             return path, err
 
+        def _evidence_dir():
+            """确定截图最终保存目录：优先当前质检数据根目录/证据目录，否则回退用户捕获目录。"""
+            data_root = self._cmd.get("data_root", "") or ""
+            evidence_folder = self._cmd.get("evidence_folder", "") or ""
+            if data_root and evidence_folder:
+                return os.path.join(data_root, evidence_folder)
+            from . import capture as cap
+            return cap.default_capture_dir()
+
         def do_upload():
+            # 防止重复上传：上传期间按钮禁用，完成后恢复
+            if _uploading["v"] or saved_path["action"]:
+                return
+            _uploading["v"] = True
+            upload_btn.setEnabled(False)
+            upload_btn.setText("上传中……")
+            save_btn.setEnabled(False)
+            recapture_btn.setEnabled(False)
             try:
                 from . import capture as cap
-                cap_dir = cap.default_capture_dir()
-                os.makedirs(cap_dir, exist_ok=True)
-                sample_id = self._cmd.get("sample_id", "") or (os.path.basename(self._images[self._current]) if self._images else "capture")
-                path, err = _save_crop(cap_dir, sample_id)
+                sample_id = str(self._cmd.get("sample_id", "") or "") or \
+                    (os.path.basename(self._images[self._current]) if self._images else "capture")
+                cap_dir = _evidence_dir()
+                # 先按旧规则保存截图到证据目录，校验写入完成再入队上传
+                path, err = cap.save_evidence_capture(cropped, cap_dir, sample_id)
                 if err:
                     QMessageBox.warning(dlg, "上传失败", err)
                     return
@@ -879,6 +898,12 @@ class ImageViewerWindow(QMainWindow):
                 import traceback
                 traceback.print_exc()
                 QMessageBox.warning(dlg, "上传失败", f"上传截图时出错：{e}")
+            finally:
+                _uploading["v"] = False
+                upload_btn.setEnabled(True)
+                upload_btn.setText("📤 上传到质检")
+                save_btn.setEnabled(True)
+                recapture_btn.setEnabled(True)
 
         def do_save():
             from . import capture as cap

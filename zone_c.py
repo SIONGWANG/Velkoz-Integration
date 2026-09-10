@@ -68,6 +68,14 @@ class ZoneCMixin:
         st.write("")
         st.markdown(f"**📷 错误截图 ({len(st.session_state[pool_key])}/3)**")
 
+        if st.button("🔍 查看错误截图", key=f"view_err_{group['id']}", use_container_width=True,
+                     help="在内置查看器中查看质检记录里已保存的错误截图（缩放/平移/翻页）"):
+            msg, ok = self._view_error_screenshots()
+            if ok:
+                st.toast(msg)
+            else:
+                st.warning(msg)
+
         c_paste, c_clear = st.columns([2, 1])
         with c_paste:
             if len(st.session_state[pool_key]) < 3:

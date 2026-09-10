@@ -80,3 +80,50 @@ def default_capture_dir():
     """默认截图保存目录：项目 EVIDENCE 命名规则下 _00_Evidence_新标 同级。
     但为避免污染，独立文件查看器截图存到用户目录下 .velkoz_captures/。"""
     return os.path.join(os.path.expanduser("~"), ".velkoz_captures")
+
+
+def save_evidence_capture(pixmap_or_image, evidence_dir, sample_id):
+    """按旧版本命名规则把截图保存到质检数据根目录的证据目录：
+    文件名 = {图片ID}_{时间戳}_{序号}.png（与主程序 save_to_disk 完全一致）。
+
+    返回 (保存路径, 错误信息)。写入完成后校验文件真实存在且可读，避免
+    “文件尚未写完就开始上传”。
+    """
+    import time
+    if isinstance(pixmap_or_image, QPixmap):
+        img = pixmap_or_image.toImage()
+    else:
+        img = pixmap_or_image
+    if img.isNull():
+        return None, "裁剪结果为空"
+    if not evidence_dir:
+        return None, "截图目录未设置"
+    try:
+        os.makedirs(evidence_dir, exist_ok=True)
+    except Exception as e:
+        return None, f"无法创建截图目录 {evidence_dir}: {e}"
+
+    sample_id = str(sample_id or "capture")
+    ts = int(time.time())
+    # 找同秒内不冲突的序号（旧规则后缀为从 0 递增的序号）
+    path = None
+    for i in range(10000):
+        candidate = os.path.join(evidence_dir, f"{sample_id}_{ts}_{i}.png")
+        if not os.path.exists(candidate):
+            path = candidate
+            break
+    if path is None:
+        return None, "截图序号分配失败"
+    if not img.save(path, "PNG"):
+        return None, f"保存截图失败：{path}"
+    # 校验：文件真实写入且可读（非固定等待，直接确认事件结果）
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) <= 0:
+            return None, f"截图文件未正确写入：{path}"
+        from PySide6.QtGui import QImageReader
+        reader = QImageReader(path)
+        if not reader.canRead():
+            return None, f"截图文件不可读取：{path}"
+    except Exception as e:
+        return None, f"截图文件校验失败：{e}"
+    return path, None

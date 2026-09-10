@@ -1,0 +1,23 @@
+# Python 编译缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行时日志
+app_error.log
+
+# 质检证据截图（质检数据，不应进入版本库）
+_00_Evidence_*/
+_verify_temp/
+
+# 图片查看器运行时文件（用户级）
+.velkoz_captures/
+.velkoz_image_viewer/
+
+# 打包临时目录
+_package_staging/
+
+# 系统文件
+Thumbs.db
+desktop.ini
+.DS_Store

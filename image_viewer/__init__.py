@@ -36,7 +36,8 @@ def is_viewer_running():
     return protocol.is_viewer_alive()
 
 
-def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=True, shortcuts=None):
+def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=True, shortcuts=None,
+                      data_root=None, evidence_folder=None):
     """打开（或复用）独立图片查看器。
 
     Args:
@@ -46,6 +47,8 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         total: 图片总数（默认取 len(images)）
         on_top: 打开时置顶显示
         shortcuts: 快捷键映谢 dict（None 则查看器读取配置文件）
+        data_root: 当前质检数据根目录（截图最终保存位置基准）
+        evidence_folder: 截图证据文件夹名称（如 _00_Evidence_新标）
     """
     images = list(images or [])
     if not images:
@@ -60,6 +63,10 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         "sample_id": sample_id,
         "on_top": bool(on_top),
     }
+    if data_root:
+        payload["data_root"] = data_root
+    if evidence_folder:
+        payload["evidence_folder"] = evidence_folder
     if shortcuts is not None:
         payload["shortcuts"] = shortcuts
 

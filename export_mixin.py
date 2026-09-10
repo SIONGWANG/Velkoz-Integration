@@ -343,13 +343,10 @@ class ExportMixin:
                         x_offset = 5
 
                         for img_rel_path in paths:
-                            norm_path = img_rel_path.replace("\\", os.sep).replace("/", os.sep)
-                            csv_dir = os.path.dirname(csv_file) or BASE_DIR
-                            full_img_path = os.path.join(csv_dir, norm_path)
-                            if not os.path.exists(full_img_path):
-                                full_img_path = os.path.join(BASE_DIR, norm_path)
+                            # 兼容旧记录：绝对/相对/数据根目录/BASE_DIR 多级解析
+                            full_img_path = self._resolve_screenshot_path(img_rel_path)
 
-                            if os.path.exists(full_img_path):
+                            if full_img_path:
                                 try:
                                     try:
                                         with Image.open(full_img_path) as _probe:
