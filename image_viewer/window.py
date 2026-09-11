@@ -431,10 +431,14 @@ class ImageViewerWindow(QMainWindow):
             self._shortcuts = viewer_config.get_viewer_settings()["shortcuts"]
         self._qkeys = viewer_config.qkeys_for(self._shortcuts)
 
-        # 标注状态
-        self._annotations = []          # 已提交标注 Annotation 列表
-        self._undo_stack = []           # [[Annotation...] 快照]
+        # 标注状态（按图片路径分开保存，切换图片时标注不串图）
+        self._annotations = []          # 当前图片已提交标注 Annotation 列表
+        self._undo_stack = []           # 当前图片的撤销快照
         self._redo_stack = []
+        self._annotations_by_image = {} # {图片路径: [Annotation...]}
+        self._undo_by_image = {}        # {图片路径: [[Annotation...] 快照]}
+        self._redo_by_image = {}
+        self._current_img_path = None   # 当前已加载图片路径
         self._tool = TOOL_RECT          # 当前工具
         self._color = "#ef4444"
         self._pen_width = 8.0           # 原图像素线宽（默认加粗，易于观察）
@@ -691,15 +695,34 @@ class ImageViewerWindow(QMainWindow):
         if self._current >= len(self._images):
             self._current = len(self._images) - 1
         path = self._images[self._current]
+        # 先保存上一张图的标注，再加载本张图自己的标注（标注不跨图显示）
+        self._store_annotations_for_current()
+        self._current_img_path = path
+        self._annotations = list(self._annotations_by_image.get(path, []))
+        self._undo_stack = list(self._undo_by_image.get(path, []))
+        self._redo_stack = list(self._redo_by_image.get(path, []))
+        self._select_rect = None
         ok, msg = self.canvas.load_image(path)
         if not ok:
             self._set_empty(msg)
         self._update_title()
         self.update_status(self.canvas.image_size(), self.canvas.transform().m11())
+        self.canvas.viewport().update()
+
+    def _store_annotations_for_current(self):
+        """把当前图片的标注与撤销/重做栈存回按路径索引的字典。"""
+        path = self._current_img_path
+        if not path:
+            return
+        self._annotations_by_image[path] = list(self._annotations)
+        self._undo_by_image[path] = list(self._undo_stack)
+        self._redo_by_image[path] = list(self._redo_stack)
 
     def _set_empty(self, msg=""):
         self.canvas.load_image("")
         self.canvas._image_size = (0, 0)
+        self._annotations = []
+        self._select_rect = None
         self.status_index.setText("— / —")
         self.status_res.setText("—")
         self.status_zoom_lbl.setText("—")
@@ -713,7 +736,19 @@ class ImageViewerWindow(QMainWindow):
             self.setWindowTitle(f"Velkoz 独立图片查看器 — {idx}/{len(self._images)}  {name}")
 
     def set_images(self, images, current_index=0):
-        self._images = list(images or [])
+        new_images = list(images or [])
+        new_set = set(new_images)
+        # 先保存当前图的标注，再丢弃不在新图集中的旧标注（避免内存无限增长）
+        self._store_annotations_for_current()
+        for k in list(self._annotations_by_image.keys()):
+            if k not in new_set:
+                self._annotations_by_image.pop(k, None)
+                self._undo_by_image.pop(k, None)
+                self._redo_by_image.pop(k, None)
+        # 若当前图已不在新图集中，清空当前路径，避免 _load_current 又把旧标注存回
+        if self._current_img_path and self._current_img_path not in new_set:
+            self._current_img_path = None
+        self._images = new_images
         self._current = int(current_index or 0)
         self._load_current()
 

@@ -453,9 +453,8 @@ class SettingsMixin:
 
     # ── 标签选择器 ──
 
-    @st.fragment
     def render_tag_selector(self, group):
-        """快捷标签选择器"""
+        """快捷标签选择器（作为 C 区 fragment 的一部分渲染，避免整页 rerun 造成卡顿）"""
         current_id = group['id']
 
         if current_id not in st.session_state.selected_tags:
@@ -511,7 +510,26 @@ class SettingsMixin:
         if set(merged) != set(selected):
             st.session_state.selected_tags[current_id] = merged
             st.session_state[f"_pending_tag_sync_{current_id}"] = True
+            self._rerun_c_fragment()
+
+    def _rerun_c_fragment(self):
+        """优先只重跑当前 C 区 fragment（而非整页），显著降低快捷标签卡顿。
+        若处于整页 rerun 中不允许 fragment 级 rerun，或旧版 Streamlit 不支持
+        scope 参数，则回退为整页 rerun。"""
+        try:
+            st.rerun(scope="fragment")
+        except TypeError:
             st.rerun()
+        except Exception as e:
+            try:
+                from streamlit.errors import StreamlitAPIException
+            except Exception:
+                st.rerun()
+                return
+            if isinstance(e, StreamlitAPIException):
+                st.rerun()
+            else:
+                raise
 
     def _del_tag(self, tag, tags_data):
         tags_data["tags"].remove(tag)
