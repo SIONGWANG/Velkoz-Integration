@@ -384,9 +384,12 @@ class ZoneBMixin:
                     with cc1:
                         st.caption(res)
                     with cc2:
-                        if st.button("📂", key=f"open_bimg_{group['id']}_{i}", help=f"打开图片（按所选方式）", use_container_width=True,
-                                     on_click=self._open_viewer_app):
-                            pass
+                        if st.button("📂", key=f"open_bimg_{group['id']}_{i}", help=f"打开图片（按所选方式）", use_container_width=True):
+                            msg, ok = self._open_viewer_app(image_path=p)
+                            if ok:
+                                st.toast(msg)
+                            else:
+                                st.warning(msg)
             # 双击图片 → 触发对应 📂 按钮
             components.html("""
             <script>

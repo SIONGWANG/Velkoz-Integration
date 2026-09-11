@@ -60,7 +60,23 @@ class ZoneAMixin:
             # ── 快速查询 ──
             with st.expander("🔍 快速查询", expanded=False):
                 tags_data = st.session_state.custom_tags
-                all_tag_options = ["全部"] + tags_data.get("tags", [])
+                local_tags = list(tags_data.get("tags", []))
+                # 历史质检记录中出现过的标签也加入搜索选项（去重），
+                # 但绝不写入本地标签库 config/tags.json。
+                seen_tags = set(local_tags)
+                history_tags = []
+                try:
+                    df_hist = self._get_df() if hasattr(self, '_get_df') else None
+                    if df_hist is not None and not df_hist.empty and '标签' in df_hist.columns:
+                        for v in df_hist['标签'].dropna().astype(str):
+                            for t in v.split(';'):
+                                t = t.strip()
+                                if t and t != 'nan' and t not in seen_tags:
+                                    seen_tags.add(t)
+                                    history_tags.append(t)
+                except Exception:
+                    history_tags = []
+                all_tag_options = ["全部"] + local_tags + history_tags
 
                 # 处理清空操作（通过 flag 延迟重置，避免 widget 值冲突）
                 if st.session_state.pop("_search_clear_pending", False):

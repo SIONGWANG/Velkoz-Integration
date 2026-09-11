@@ -296,9 +296,15 @@ class SettingsMixin:
             return None, "当前组没有可查看的图片。"
         return images, ""
 
-    def _open_viewer_app(self):
+    def _open_viewer_app(self, image_path=None, image_index=None):
         """统一打开图片：依据查看器模式打开。内置模式支持 toggle（点/按·开、再按关）。
-        返回 (msg, ok)。"""
+        返回 (msg, ok)。
+
+        Args:
+            image_path: 明确要打开的图片绝对路径（优先，最稳妥）
+            image_index: 在当前组图片列表中的索引（无 image_path 时使用）
+            image_path / image_index 都为空时，沿用原有默认行为（第一张 / toggle）。
+        """
         try:
             from image_viewer import open_image_viewer, is_viewer_running, close_image_viewer
             from image_viewer import config as iv_config
@@ -309,21 +315,47 @@ class SettingsMixin:
         if images is None:
             return err, False
 
+        explicit = bool(image_path) or (image_index is not None)
+
+        # 计算目标索引 / 目标路径（点击哪张就打开哪张）
+        target_path = None
+        target_index = 0
+        if image_path:
+            if not os.path.isfile(image_path):
+                return f"图片不存在：{os.path.basename(str(image_path))}", False
+            target_path = image_path
+            if image_path in images:
+                target_index = images.index(image_path)
+            else:
+                images = list(images) + [image_path]
+                target_index = len(images) - 1
+        elif image_index is not None:
+            try:
+                target_index = int(image_index)
+            except (TypeError, ValueError):
+                return "图片索引无效。", False
+            if target_index < 0 or target_index >= len(images):
+                return "指定的图片不存在（索引越界）。", False
+            target_path = images[target_index]
+        else:
+            target_index = 0
+            target_path = images[0] if images else None
+
         mode = iv_config.get_viewer_mode()
         if mode == iv_config.MODE_SYSTEM:
-            # 系统默认查看器：打开第一张当前原图（外部程序，不 toggle）
-            first = next((p for p in images), None)
-            if not first:
-                return "当前组没有可查看的图片。", False
-            self.open_in_system(first)
-            return f"已用系统默认查看器打开：{os.path.basename(first)}", True
+            # 系统默认查看器：打开明确的目标图片（外部程序，不 toggle）
+            if not target_path or not os.path.isfile(target_path):
+                return "图片不存在，无法打开。", False
+            self.open_in_system(target_path)
+            return f"已用系统默认查看器打开：{os.path.basename(target_path)}", True
 
-        # 内置模式：toggle
-        if is_viewer_running():
+        # 内置模式：仅在“无明确目标”时保持原有 toggle 行为；
+        # 有明确目标时直接打开/切换到该图片，不做关闭。
+        if not explicit and is_viewer_running():
             close_image_viewer()
             return "已关闭内置图片查看器。", True
         sc = iv_config.get_viewer_settings()["shortcuts"]
-        ok, msg = open_image_viewer(images, current_index=0,
+        ok, msg = open_image_viewer(images, current_index=target_index,
                                     sample_id=str(st.session_state.get('current_id') or ''),
                                     data_root=self.get_data_root(),
                                     evidence_folder=self.get_evidence_folder_name(),
@@ -466,9 +498,16 @@ class SettingsMixin:
         all_tags = tags_data.get("tags", [])
         frequent_tags = tags_data.get("frequent", [])
 
-        if not all_tags:
+        if not all_tags and not selected:
             st.caption("暂无标签，请在下方「标签管理」中添加")
             return
+
+        # 全部标签选项 = 本地标签（排除常用）+ 当前记录里已选但不在本地库的历史标签。
+        # 历史标签必须显示并保持选中，否则会在合并时被过滤丢失。
+        other_tags = [t for t in all_tags if t not in frequent_tags]
+        for t in selected:
+            if t not in frequent_tags and t not in other_tags:
+                other_tags.append(t)
 
         # 常用标签
         if frequent_tags:
@@ -488,7 +527,6 @@ class SettingsMixin:
             freq_selected = None
 
         # 全部标签（排除常用）
-        other_tags = [t for t in all_tags if t not in frequent_tags]
         if other_tags:
             other_default = [t for t in selected if t in other_tags]
             try:

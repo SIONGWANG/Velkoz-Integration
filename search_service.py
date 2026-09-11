@@ -36,13 +36,21 @@ def search_items(data_groups, search_id, search_tag, search_text, df=None, statu
     if status_map is None:
         status_map = {}
 
-    # 构建 CSV 标签查找表：{item_id: [tag1, tag2, ...]}
+    # 构建 CSV 标签 / 备注查找表：{item_id: [...]} / {item_id: notes}
     csv_tags_map = {}
-    if df is not None and not df.empty and '图片ID' in df.columns and '标签' in df.columns:
+    csv_notes_map = {}
+    if df is not None and not df.empty and '图片ID' in df.columns:
+        has_tags = '标签' in df.columns
+        has_notes = '备注' in df.columns
         for _, row in df.iterrows():
             pid = str(row.get('图片ID', '')).strip()
-            if pid:
+            if not pid:
+                continue
+            if has_tags:
                 csv_tags_map[pid] = _parse_csv_tags(row.get('标签', ''))
+            if has_notes:
+                note = row.get('备注', '')
+                csv_notes_map[pid] = '' if note is None or str(note) == 'nan' else str(note)
 
     search_text_lower = search_text.strip().lower() if filter_by_text else ""
 
@@ -52,18 +60,19 @@ def search_items(data_groups, search_id, search_tag, search_text, df=None, statu
         if filter_by_id and item_id != search_id.strip():
             continue
 
-        # 标签匹配：优先从 CSV 查找，未命中则从 csv_tags_map 查
+        # 标签匹配：按分隔符拆分后做完整标签匹配（多标签任一命中）
         if filter_by_tag:
             csv_tags = csv_tags_map.get(item_id, [])
             if search_tag not in csv_tags:
                 continue
 
-        # 自由文本匹配：模糊匹配编号或标签
+        # 自由文本匹配：模糊匹配编号、标签、备注（备注也要能搜到）
         if filter_by_text:
             id_match = search_text_lower in item_id.lower()
             csv_tags = csv_tags_map.get(item_id, [])
             tag_match = any(search_text_lower in t.lower() for t in csv_tags)
-            if not id_match and not tag_match:
+            notes_match = search_text_lower in csv_notes_map.get(item_id, '').lower()
+            if not id_match and not tag_match and not notes_match:
                 continue
 
         results.append({

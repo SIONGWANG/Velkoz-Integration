@@ -55,7 +55,7 @@ class ZoneCMixin:
                 original_path = os.path.join(group['root'], group['original']) if group.get('original') else None
                 if st.button("🖼️", key=f"open_original_{group['id']}", use_container_width=True,
                              help="打开图片（按所选方式）", disabled=not original_path):
-                    msg, ok = self._open_viewer_app()
+                    msg, ok = self._open_viewer_app(image_path=original_path)
                     if ok:
                         st.toast(msg)
                         st.rerun()
@@ -285,7 +285,11 @@ class ZoneCMixin:
             bc1, bc2 = st.columns(2)
             with bc1:
                 if st.button("✅ 全选所有标签", use_container_width=True, key=f"select_all_{current_id}"):
-                    st.session_state.selected_tags[current_id] = all_tags.copy()
+                    # 全选 = 本地全部标签 ∪ 当前已选（含历史标签），避免误删历史标签
+                    merged_all = list(dict.fromkeys(
+                        list(all_tags) + list(st.session_state.selected_tags.get(current_id, []))
+                    ))
+                    st.session_state.selected_tags[current_id] = merged_all
                     self._sync_tags_to_notes(group)
             with bc2:
                 if st.button("🗑️ 清空已选标签", use_container_width=True, key=f"clear_all_{current_id}"):
