@@ -108,6 +108,9 @@ class ViewerRunner:
         # 若附带快捷键更新，则应用（在主线程执行，安全）
         if cmd.get("shortcuts"):
             self.window.set_shortcuts(cmd["shortcuts"])
+        # 若附带布局模式更新（single/dual），则应用（不重复落盘，配置由主程序负责）
+        if cmd.get("layout_mode"):
+            self.window.set_layout_mode(cmd["layout_mode"], persist=False)
         # 若主程序请求置于前台（再次打开时唤醒）
         if cmd.get("activate"):
             self.window.bring_to_front()

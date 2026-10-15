@@ -350,7 +350,8 @@ class SettingsMixin:
                                     sample_id=str(st.session_state.get('current_id') or ''),
                                     data_root=self.get_data_root(),
                                     evidence_folder=self.get_evidence_folder_name(),
-                                    shortcuts=sc)
+                                    shortcuts=sc,
+                                    layout_mode=iv_config.get_layout_mode())
         if not ok:
             return msg, False
         return "已打开内置图片查看器。", True
@@ -393,7 +394,8 @@ class SettingsMixin:
         ok, msg = open_image_viewer(paths, current_index=0, sample_id=str(cid),
                                     data_root=self.get_data_root(),
                                     evidence_folder=self.get_evidence_folder_name(),
-                                    shortcuts=sc)
+                                    shortcuts=sc,
+                                    layout_mode=iv_config.get_layout_mode())
         if not ok:
             return msg, False
         return f"已在内置查看器中打开 {len(paths)} 张错误截图。", True
@@ -1281,6 +1283,26 @@ class SettingsMixin:
         if sel_mode != mode:
             iv_config.save_viewer_mode(sel_mode)
             st.session_state['_iviewer_opened'] = False
+            st.rerun()
+
+        # ── 查看布局：单图 / 双图并排（v1.22.0，仅内置查看器） ──
+        layout_mode = iv_config.get_layout_mode()
+        layout_labels = iv_config.LAYOUT_MODE_LABELS
+        sel_layout = st.radio(
+            "查看布局",
+            options=[iv_config.LAYOUT_SINGLE, iv_config.LAYOUT_DUAL],
+            format_func=lambda m: layout_labels.get(m, m),
+            index=0 if layout_mode == iv_config.LAYOUT_SINGLE else 1,
+            key="_iviewer_layout",
+            horizontal=True,
+        )
+        if sel_layout != layout_mode:
+            iv_config.save_layout_mode(sel_layout)
+            try:
+                from image_viewer import update_viewer_layout
+                update_viewer_layout(sel_layout)
+            except Exception:
+                logging.warning("热更新查看器布局失败", exc_info=True)
             st.rerun()
 
         click_col, status_col = st.columns([1.5, 1])

@@ -81,6 +81,11 @@ def request_shortcuts(shortcuts):
     write_cmd({"shortcuts": dict(shortcuts or {}), "activate": False})
 
 
+def request_layout_mode(mode):
+    """请求运行中的查看器切换布局（single/dual），不触碰 images。"""
+    write_cmd({"layout_mode": str(mode), "activate": False})
+
+
 # ── 上传队列（查看器 -> 主程序） ──
 def uploads_path():
     return os.path.join(runtime_dir(), "uploads.json")
@@ -264,22 +269,31 @@ def terminate_viewer():
 
 
 def close_viewer(timeout=None):
-    """安全关闭查看器：显式关闭命令 → 等待退出 → 超时兜底终止该 PID。
-    返回 True 表示查看器已结束（或本就不存在）。"""
+    """安全关闭查看器：显式关闭命令 → 等待进程退出 → 超时兜底终止该 PID。
+    返回 True 表示查看器已结束（或本就不存在）。
+
+    注意：这里不依赖“心跳是否新鲜”来决定是否发送关闭命令。
+    只要锁文件存在，就发送关闭命令（心跳可能暂时不新鲜但进程仍在运行），
+    再以“PID 是否存活 / 锁是否释放”作为退出判据。"""
     if timeout is None:
         timeout = CLOSE_WAIT_TIMEOUT
-    if not is_viewer_alive():
-        # 无存活进程：清理陈旧锁即可
-        release_lock()
+    if not os.path.isfile(lock_path()):
         return True
+    pid = lock_pid()
     try:
         request_close()
     except Exception as e:
         logger.warning("发送查看器关闭命令失败: %s", e)
     deadline = time.time() + max(0.0, float(timeout))
     while time.time() < deadline:
-        if not is_viewer_alive(timeout=0.5):
+        if pid and not _pid_alive(pid):
+            release_lock()
+            return True
+        if not os.path.isfile(lock_path()) and (not pid or not _pid_alive(pid)):
             return True
         time.sleep(0.2)
     logger.warning("查看器未在 %.1fs 内退出，执行兜底终止", timeout)
-    return terminate_viewer()
+    if pid and _pid_alive(pid):
+        return terminate_viewer()
+    release_lock()
+    return True

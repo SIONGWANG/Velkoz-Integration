@@ -30,6 +30,7 @@ DEFAULT_SHORTCUTS = {
 DEFAULT_PAN_BUTTON = "right"
 
 # 查看器模式：内置 Image Viewer / 系统默认查看器
+# 注意：此 viewer_mode 指“用哪个查看器打开”，与下面的 layout_mode（布局）不同。
 MODE_BUILTIN = "builtin"     # 使用本次新增的独立 Image Viewer
 MODE_SYSTEM = "system"       # 沿用系统默认图片打开方式
 DEFAULT_VIEWER_MODE = MODE_BUILTIN
@@ -37,6 +38,16 @@ DEFAULT_VIEWER_MODE = MODE_BUILTIN
 VIEWER_MODE_LABELS = {
     MODE_BUILTIN: "内置图片查看器",
     MODE_SYSTEM: "系统默认查看器",
+}
+
+# 查看器布局：单图 / 双图并排（v1.22.0）
+LAYOUT_SINGLE = "single"
+LAYOUT_DUAL = "dual"
+DEFAULT_LAYOUT_MODE = LAYOUT_SINGLE
+
+LAYOUT_MODE_LABELS = {
+    LAYOUT_SINGLE: "单图",
+    LAYOUT_DUAL: "双图并排",
 }
 
 # 小写后 -> 中文显示名（用于主程序配置面板）
@@ -143,10 +154,15 @@ def get_viewer_settings():
     if not isinstance(v, dict):
         v = {}
     shortcuts = v.get("shortcuts", {}) or {}
+    layout_mode = v.get("layout_mode", DEFAULT_LAYOUT_MODE)
+    if layout_mode not in (LAYOUT_SINGLE, LAYOUT_DUAL):
+        logger.warning("查看器 layout_mode 非法(%r)，回退 single", layout_mode)
+        layout_mode = DEFAULT_LAYOUT_MODE
     return {
         "shortcuts": normalize_shortcuts(shortcuts, log_issues=True),
         "pan_button": v.get("pan_button", DEFAULT_PAN_BUTTON),
         "viewer_mode": v.get("viewer_mode", DEFAULT_VIEWER_MODE),
+        "layout_mode": layout_mode,
     }
 
 
@@ -167,6 +183,25 @@ def save_viewer_mode(mode):
 
 def get_viewer_mode():
     return get_viewer_settings().get("viewer_mode", DEFAULT_VIEWER_MODE)
+
+
+def save_layout_mode(mode):
+    """保存查看器布局（single/dual），持久化到 settings.json。"""
+    if mode not in (LAYOUT_SINGLE, LAYOUT_DUAL):
+        mode = DEFAULT_LAYOUT_MODE
+    all_data = _read_all()
+    if not isinstance(all_data, dict):
+        all_data = {}
+    v = all_data.get("image_viewer", {}) or {}
+    if not isinstance(v, dict):
+        v = {}
+    v["layout_mode"] = mode
+    all_data["image_viewer"] = v
+    _write_all(all_data)
+
+
+def get_layout_mode():
+    return get_viewer_settings().get("layout_mode", DEFAULT_LAYOUT_MODE)
 
 
 def save_shortcuts(shortcuts):

@@ -37,7 +37,7 @@ def is_viewer_running():
 
 
 def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=True, shortcuts=None,
-                      data_root=None, evidence_folder=None):
+                      data_root=None, evidence_folder=None, layout_mode=None):
     """打开（或复用）独立图片查看器。
 
     Args:
@@ -49,6 +49,7 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         shortcuts: 快捷键映谢 dict（None 则查看器读取配置文件）
         data_root: 当前质检数据根目录（截图最终保存位置基准）
         evidence_folder: 截图证据文件夹名称（如 _00_Evidence_新标）
+        layout_mode: 布局模式 single/dual（None 则查看器读取配置文件）
     """
     images = list(images or [])
     if not images:
@@ -69,6 +70,8 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         payload["evidence_folder"] = evidence_folder
     if shortcuts is not None:
         payload["shortcuts"] = shortcuts
+    if layout_mode is not None:
+        payload["layout_mode"] = layout_mode
 
     if protocol.is_viewer_alive():
         # 已存活：更新内容 + 请求前台激活（快速重开/唤醒）
@@ -126,9 +129,21 @@ def update_viewer_shortcuts(shortcuts):
         return False
 
 
+def update_viewer_layout(mode):
+    """把布局模式（single/dual）热更新到运行中的查看器；未运行则返回 False。"""
+    if not protocol.is_viewer_alive():
+        return False
+    try:
+        protocol.request_layout_mode(mode)
+        return True
+    except Exception:
+        return False
+
+
 __all__ = [
     "open_image_viewer",
     "is_viewer_running",
     "close_image_viewer",
     "update_viewer_shortcuts",
+    "update_viewer_layout",
 ]
