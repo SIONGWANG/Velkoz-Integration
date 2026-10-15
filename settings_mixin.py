@@ -166,86 +166,77 @@ class SettingsMixin:
                 return null;
             }}
 
-            function handleHotkeys(e) {{
-                const tag = doc.activeElement.tagName;
-                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            // 输入框/文本域/下拉框/contenteditable 正在编辑时不拦截按键
+            function isEditable(el) {{
+                if (!el) return false;
+                const tag = (el.tagName || '').toUpperCase();
+                return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+            }}
 
-                // 二级分类快捷键（仅在有映射时生效）
-                const key = e.key.toUpperCase();
-                if (l2Shortcuts[key]) {{
-                    const btn = findL2Button(key);
-                    if (btn && !btn.disabled) {{
-                        e.preventDefault();
-                        btn.click();
+            // 仅当真正命中按钮并触发时才阻止默认行为；查不到按钮则不改动默认行为
+            function clickIfBtn(test) {{
+                const btn = findBtn(test);
+                if (btn && !btn.disabled) {{ btn.click(); return true; }}
+                return false;
+            }}
+
+            function handleHotkeys(e) {{
+                try {{
+                    if (isEditable(doc.activeElement)) return;
+
+                    const key = (e.key || '').toUpperCase();
+
+                    // 二级分类快捷键（仅在有映射时生效）
+                    if (l2Shortcuts[key]) {{
+                        const btn = findL2Button(key);
+                        if (btn && !btn.disabled) {{ e.preventDefault(); btn.click(); }}
                         return;
                     }}
-                }}
 
-                // 提交并下一条 — 空格
-                if (e.key === ' ') {{
-                    const btn = findBtn(b => b.innerText.includes('提交并下一条'));
-                    if (btn && !btn.disabled) {{
-                        e.preventDefault();
-                        btn.click();
+                    // 提交并下一条 — 空格
+                    if (e.key === ' ' || e.code === 'Space') {{
+                        if (clickIfBtn(b => b.innerText.includes('提交并下一条'))) e.preventDefault();
+                        return;
                     }}
-                    return;
-                }}
 
-                // 快捷合格提交 — X
-                if (e.key === 'x' || e.key === 'X') {{
-                    const btn = findBtn(b => b.innerText.includes('快捷合格'));
-                    if (btn && !btn.disabled) {{
-                        e.preventDefault();
-                        btn.click();
+                    // 快捷合格提交 — X
+                    if (key === 'X') {{
+                        if (clickIfBtn(b => b.innerText.includes('快捷合格'))) e.preventDefault();
+                        return;
                     }}
-                    return;
-                }}
 
-                // 修改合格提交 — V
-                if (e.key === 'v' || e.key === 'V') {{
-                    const btn = findBtn(b => b.innerText.includes('修改合格'));
-                    if (btn && !btn.disabled) {{
-                        e.preventDefault();
-                        btn.click();
+                    // 修改合格提交 — V
+                    if (key === 'V') {{
+                        if (clickIfBtn(b => b.innerText.includes('修改合格'))) e.preventDefault();
+                        return;
                     }}
-                    return;
-                }}
 
-                // 上一条
-                if (e.key === 'ArrowLeft') {{
-                    e.preventDefault();
-                    const btn = findBtn(b => b.innerText.includes('⬅️') || b.innerText.includes('上一条'));
-                    if (btn && !btn.disabled) btn.click();
-                    return;
-                }}
-
-                // 下一条
-                if (e.key === 'ArrowRight') {{
-                    e.preventDefault();
-                    const btn = findBtn(b => b.innerText.includes('下一条 ➡️') || (b.innerText.includes('下一条') && !b.innerText.includes('提交')));
-                    if (btn && !btn.disabled) btn.click();
-                    return;
-                }}
-
-                // 视图切换 1-4
-                const viewKeys = {{'1': '🔍', '2': '🔴 原图', '3': '图 1', '4': '图 2'}};
-                if (viewKeys[e.key]) {{
-                    const needle = viewKeys[e.key];
-                    const btn = findBtn(b => b.innerText.includes(needle));
-                    if (btn && !btn.disabled) {{
-                        e.preventDefault();
-                        btn.click();
+                    // 上一条
+                    if (e.key === 'ArrowLeft') {{
+                        if (clickIfBtn(b => b.innerText.includes('⬅️') || b.innerText.includes('上一条'))) e.preventDefault();
+                        return;
                     }}
-                    return;
-                }}
 
-                // 打开/关闭图片查看器（内置模式 toggle；系统模式打开）
-                if (e.key === '`' || e.key === '~') {{
-                    const btn = findBtn(b => b.innerText.includes('查看器'));
-                    if (btn && !btn.disabled) {{
-                        e.preventDefault();
-                        btn.click();
+                    // 下一条
+                    if (e.key === 'ArrowRight') {{
+                        if (clickIfBtn(b => b.innerText.includes('下一条 ➡️') || (b.innerText.includes('下一条') && !b.innerText.includes('提交')))) e.preventDefault();
+                        return;
                     }}
+
+                    // 视图切换 1-4
+                    const viewKeys = {{'1': '🔍', '2': '🔴 原图', '3': '图 1', '4': '图 2'}};
+                    if (viewKeys[e.key]) {{
+                        const needle = viewKeys[e.key];
+                        if (clickIfBtn(b => b.innerText.includes(needle))) e.preventDefault();
+                        return;
+                    }}
+
+                    // 打开/关闭图片查看器（内置模式 toggle；系统模式打开）
+                    if (e.key === '`' || e.key === '~') {{
+                        if (clickIfBtn(b => b.innerText.includes('查看器'))) e.preventDefault();
+                    }}
+                }} catch (err) {{
+                    // 单个快捷键处理失败不得使其它监听器失效
                 }}
             }}
             doc.removeEventListener('keydown', window.parent.myHotkeysHandler);
@@ -1320,7 +1311,10 @@ class SettingsMixin:
     def _render_iviewer_shortcuts(self, iv_config):
         """图片查看器快捷键配置面板（复用项目设置系统持久化）"""
         with st.expander("⌨️ 查看器快捷键设置", expanded=False):
-            st.caption("设置图片查看器的快捷键。修改后点「保存」立即生效并持久化；重启程序仍有效。")
+            st.caption("设置图片查看器的快捷键。修改后点「保存」会立即应用到运行中的查看器；重启程序仍有效。")
+            flash = st.session_state.pop('_iv_short_msg', None)
+            if flash:
+                st.success(flash)
             cur = iv_config.get_viewer_settings()["shortcuts"]
             keys = list(iv_config.DEFAULT_SHORTCUTS.keys())
             inputs = {}
@@ -1337,13 +1331,31 @@ class SettingsMixin:
             save_btn, reset_btn, _ = st.columns([1, 1, 0.2])
             with save_btn:
                 if st.button("💾 保存快捷键", use_container_width=True, key="_iv_short_save"):
-                    iv_config.save_shortcuts(inputs)
-                    st.success("已保存并应用到打开/已运行的查看器。")
-                    st.rerun()
+                    issues = iv_config.save_shortcuts(inputs)
+                    applied = False
+                    try:
+                        from image_viewer import update_viewer_shortcuts
+                        applied = update_viewer_shortcuts(iv_config.get_viewer_settings()["shortcuts"])
+                    except Exception:
+                        logging.warning("热更新查看器快捷键失败", exc_info=True)
+                    if issues:
+                        st.warning("部分快捷键非法或冲突，已回退默认：" + "；".join(issues))
+                    elif applied:
+                        st.success("已保存并即时应用到运行中的查看器。")
+                    else:
+                        st.success("已保存；查看器当前未运行，下次打开时生效。")
             with reset_btn:
                 if st.button("↺ 恢复默认", use_container_width=True, key="_iv_short_reset"):
                     iv_config.save_shortcuts(iv_config.DEFAULT_SHORTCUTS)
-                    st.success("已恢复默认快捷键。")
+                    try:
+                        from image_viewer import update_viewer_shortcuts
+                        update_viewer_shortcuts(iv_config.get_viewer_settings()["shortcuts"])
+                    except Exception:
+                        logging.warning("热更新查看器快捷键失败", exc_info=True)
+                    # 让输入框刷新为默认值（text_input 的 key 已存在时 value 参数不生效）
+                    for k, dv in iv_config.DEFAULT_SHORTCUTS.items():
+                        st.session_state[f"_iv_short_{k}"] = dv
+                    st.session_state['_iv_short_msg'] = "已恢复默认快捷键并应用。"
                     st.rerun()
 
     def _render_hotkeys_section(self):

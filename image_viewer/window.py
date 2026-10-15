@@ -473,10 +473,8 @@ class ImageViewerWindow(QMainWindow):
         self._load_current()
 
     # ── 快捷键 ──
-    def _apply_shortcuts(self):
-        """把配置的快捷键绑定到对应 action / 键位。"""
-        qk = self._qkeys
-        mapping = {
+    def _action_map(self):
+        return {
             "prev": self.act_prev,
             "next": self.act_next,
             "zoom_in": self.act_zoomin,
@@ -485,24 +483,40 @@ class ImageViewerWindow(QMainWindow):
             "hundred": self.act_100,
             "close": self.act_quit,
         }
+
+    def _apply_shortcuts(self):
+        """把配置的快捷键覆盖式绑定到对应 action。
+        每个 action 都通过 setShortcut 整体覆盖，不会残留旧的重复 QShortcut/QAction；
+        非法或空值回退默认值，冲突时保留先到者、后者回退默认。"""
+        qk = self._qkeys or {}
+        defaults = viewer_config.qkeys_for(viewer_config.DEFAULT_SHORTCUTS)
+        mapping = self._action_map()
+        seen = {}
         for key, act in mapping.items():
-            seq = qk.get(key)
-            if seq:
-                try:
-                    act.setShortcut(seq)
-                except Exception:
-                    pass
-            # 更新工具栏提示
-            if key in ("prev", "next", "zoom_in", "zoom_out", "fit", "hundred", "close"):
-                act = mapping[key]
-                try:
-                    act.setToolTip(f"{act.text()} ({seq})" if seq else act.text())
-                except Exception:
-                    pass
+            seq = qk.get(key) or defaults.get(key) or ""
+            canon = seq.lower()
+            if canon and canon in seen:
+                seq = defaults.get(key) or ""
+                canon = seq.lower()
+                if canon and canon in seen:
+                    seq = ""  # 仍与已绑定键冲突 → 清空该绑定，避免一键多触发
+            if canon:
+                seen[canon] = key
+            try:
+                act.setShortcut(QKeySequence(seq) if seq else QKeySequence())
+            except Exception:
+                pass
+            try:
+                base = act.text().split(" (")[0]
+                act.setToolTip(f"{base} ({seq})" if seq else base)
+            except Exception:
+                pass
 
     def set_shortcuts(self, shortcuts):
-        self._shortcuts = shortcuts or viewer_config.DEFAULT_SHORTCUTS
-        self._qkeys = viewer_config.qkeys_for(self._shortcuts)
+        """热更新快捷键：校验→归一化→覆盖式重绑。"""
+        merged = viewer_config.normalize_shortcuts(shortcuts, log_issues=True)
+        self._shortcuts = merged
+        self._qkeys = viewer_config.qkeys_for(merged)
         self._apply_shortcuts()
 
     # ── UI 构建 ──
@@ -1139,10 +1153,17 @@ class ImageViewerWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    # ── 关闭：立即释放锁，让主程序可快速重开 ──
+    # ── 关闭：释放锁并请求应用退出，确保进程真正结束（不只是删锁文件）──
     def closeEvent(self, event):
         try:
             protocol.release_lock()
         except Exception:
             pass
         super().closeEvent(event)
+        # 退出 Qt 事件循环，保证 runner 的轮询/心跳定时器停止、进程结束
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+        except Exception:
+            pass

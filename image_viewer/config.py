@@ -11,6 +11,9 @@
 """
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 快捷键默认值（规范推荐）
 DEFAULT_SHORTCUTS = {
@@ -66,7 +69,9 @@ def _read_all():
     try:
         with open(p, "r", encoding="utf-8") as f:
             return json.load(f) or {}
-    except Exception:
+    except Exception as e:
+        # 配置缺失/损坏时安全回退默认值，但保留可诊断日志
+        logger.warning("查看器配置读取失败，使用默认值: %s (%s)", p, e)
         return {}
 
 
@@ -80,16 +85,66 @@ def _write_all(all_data):
     os.replace(tmp, p)
 
 
+def _is_valid_sequence(value):
+    """校验单个快捷键值：必须是非空字符串，且每个 '+' 分段都非空。
+    允许形如 "Left" / "Ctrl+Z" / "+" / "-" / "0" 等单键或组合键。"""
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    if text == "+":            # 单键 Plus 本身合法
+        return True
+    tokens = [t.strip() for t in text.split("+")]
+    return all(tokens)
+
+
+def _normalize_with_issues(shortcuts):
+    """内部实现：返回 (clean, issues)。"""
+    src = shortcuts if isinstance(shortcuts, dict) else {}
+    clean = {}
+    issues = []
+    for k, dv in DEFAULT_SHORTCUTS.items():
+        raw = src.get(k, dv)
+        if _is_valid_sequence(raw):
+            clean[k] = raw.strip()
+        else:
+            clean[k] = dv
+            if k in src:
+                issues.append(f"{k}=非法值→{dv}")
+    # 冲突消解：同一按键序列只能绑定一个动作
+    used = {}
+    for k in DEFAULT_SHORTCUTS:
+        canon = clean[k].lower()
+        if canon in used:
+            issues.append(f"{k}与{used[canon]}冲突→{DEFAULT_SHORTCUTS[k]}")
+            clean[k] = DEFAULT_SHORTCUTS[k]
+        else:
+            used[canon] = k
+    return clean, issues
+
+
+def normalize_shortcuts(shortcuts, log_issues=False):
+    """把任意来源的快捷键映射归一化为完整、合法的结构。
+    - 缺失字段：回退默认值
+    - 空值/非法值：回退默认值
+    - 冲突（多个动作映射到同一键）：后者回退默认值
+    返回干净的深拷贝 dict，不修改入参。"""
+    clean, issues = _normalize_with_issues(shortcuts)
+    if issues and log_issues:
+        logger.warning("查看器快捷键配置存在问题，已回退默认: %s", "; ".join(issues))
+    return clean
+
+
 def get_viewer_settings():
-    """返回 image_viewer 配置（与默认值合并后的完整结构）。"""
+    """返回 image_viewer 配置（与默认值合并、校验后的完整结构）。"""
     all_data = _read_all()
     v = all_data.get("image_viewer", {}) if isinstance(all_data, dict) else {}
     if not isinstance(v, dict):
         v = {}
     shortcuts = v.get("shortcuts", {}) or {}
-    merged = {k: shortcuts.get(k, dv) for k, dv in DEFAULT_SHORTCUTS.items()}
     return {
-        "shortcuts": merged,
+        "shortcuts": normalize_shortcuts(shortcuts, log_issues=True),
         "pan_button": v.get("pan_button", DEFAULT_PAN_BUTTON),
         "viewer_mode": v.get("viewer_mode", DEFAULT_VIEWER_MODE),
     }
@@ -115,14 +170,11 @@ def get_viewer_mode():
 
 
 def save_shortcuts(shortcuts):
-    """保存快捷键映谢（校验合法键名 + 转换键到默认组）。"""
-    clean = {}
-    for k, dv in DEFAULT_SHORTCUTS.items():
-        val = shortcuts.get(k, dv)
-        if isinstance(val, str) and val.strip():
-            clean[k] = val.strip()
-        else:
-            clean[k] = dv
+    """保存快捷键映射（校验合法值 + 冲突消解）。
+    返回问题列表（已回退默认的字段），供 UI 提示。"""
+    clean, issues = _normalize_with_issues(shortcuts)
+    if issues:
+        logger.warning("查看器快捷键保存时发现问题，已回退默认: %s", "; ".join(issues))
     all_data = _read_all()
     if not isinstance(all_data, dict):
         all_data = {}
@@ -132,6 +184,7 @@ def save_shortcuts(shortcuts):
     v["shortcuts"] = clean
     all_data["image_viewer"] = v
     _write_all(all_data)
+    return issues
 
 
 def save_pan_button(button):
@@ -163,9 +216,16 @@ def qkeys_for(shortcuts):
     for k, v in (shortcuts or {}).items():
         if not isinstance(v, str):
             continue
-        tokens = [t.strip() for t in v.split("+") if t.strip()]
-        norm = []
-        for t in tokens:
-            norm.append(alias.get(t.lower(), t))
+        text = v.strip()
+        if not text:
+            continue
+        # 单键 "+" 本身就是 Plus 键名，不能按组合键分隔符拆分
+        if text == "+":
+            out[k] = "+"
+            continue
+        tokens = [t.strip() for t in text.split("+") if t.strip()]
+        if not tokens:
+            continue
+        norm = [alias.get(t.lower(), t) for t in tokens]
         out[k] = "+".join(norm)
     return out

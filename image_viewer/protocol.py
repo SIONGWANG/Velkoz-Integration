@@ -7,9 +7,13 @@
 import os
 import json
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 HEARTBEAT_TIMEOUT = 20.0       # 心跳超时（秒），超过则视为查看器已退出
 HEARTBEAT_INTERVAL = 5.0       # 查看器心跳间隔
+CLOSE_WAIT_TIMEOUT = 5.0       # 请求关闭后等待进程自行退出的最长秒数
 
 
 def runtime_dir():
@@ -64,6 +68,17 @@ def read_cmd():
             return json.load(f)
     except Exception:
         return None
+
+
+def request_close():
+    """请求查看器正常退出：写入显式关闭命令。
+    关闭命令整包替换命令文件（不需要保留 images，退出即失效）。"""
+    write_cmd({"close": True})
+
+
+def request_shortcuts(shortcuts):
+    """请求运行中的查看器热更新快捷键（不触碰 images，避免重新加载图片）。"""
+    write_cmd({"shortcuts": dict(shortcuts or {}), "activate": False})
 
 
 # ── 上传队列（查看器 -> 主程序） ──
@@ -155,6 +170,19 @@ def release_lock():
         pass
 
 
+def lock_pid():
+    """读取锁文件中记录的查看器 PID；无锁/损坏返回 None。"""
+    p = lock_path()
+    if not os.path.isfile(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("pid")
+    except Exception:
+        return None
+
+
 def _pid_alive(pid):
     """跨平台判断进程是否存活。Windows 用 ctypes 打开进程句柄，不需 psutil。"""
     try:
@@ -203,3 +231,55 @@ def is_viewer_alive(timeout=None):
         return _pid_alive(data.get("pid", 0))
     except Exception:
         return False
+
+
+def terminate_viewer():
+    """兜底：强制结束锁文件记录的查看器 PID（仅该 PID，绝不误杀其他进程）。
+    返回 True 表示该 PID 已不存在。"""
+    pid = lock_pid()
+    if not pid or not _pid_alive(pid):
+        release_lock()
+        return True
+    try:
+        if os.name == "nt":
+            import ctypes
+            PROCESS_TERMINATE = 0x0001
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
+            if handle:
+                try:
+                    ctypes.windll.kernel32.TerminateProcess(handle, 1)
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(handle)
+        else:
+            import signal
+            os.kill(int(pid), signal.SIGTERM)
+    except Exception as e:
+        logger.warning("终止查看器进程失败 pid=%s: %s", pid, e)
+        return False
+    time.sleep(0.3)
+    alive = _pid_alive(pid)
+    if not alive:
+        release_lock()
+    return not alive
+
+
+def close_viewer(timeout=None):
+    """安全关闭查看器：显式关闭命令 → 等待退出 → 超时兜底终止该 PID。
+    返回 True 表示查看器已结束（或本就不存在）。"""
+    if timeout is None:
+        timeout = CLOSE_WAIT_TIMEOUT
+    if not is_viewer_alive():
+        # 无存活进程：清理陈旧锁即可
+        release_lock()
+        return True
+    try:
+        request_close()
+    except Exception as e:
+        logger.warning("发送查看器关闭命令失败: %s", e)
+    deadline = time.time() + max(0.0, float(timeout))
+    while time.time() < deadline:
+        if not is_viewer_alive(timeout=0.5):
+            return True
+        time.sleep(0.2)
+    logger.warning("查看器未在 %.1fs 内退出，执行兜底终止", timeout)
+    return terminate_viewer()

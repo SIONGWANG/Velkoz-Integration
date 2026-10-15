@@ -108,14 +108,27 @@ def open_image_viewer(images, current_index=0, sample_id="", total=None, on_top=
         return False, f"启动图片查看器失败：{e}"
 
 
-def close_image_viewer():
-    """提示查看器退出（写一个空命令 + 释放锁）；失败则忽略。"""
-    protocol.release_lock()
-    return True
+def close_image_viewer(timeout=None):
+    """安全关闭内置查看器：发送显式关闭命令 → 等待进程退出 → 超时兜底终止。
+    绝不误杀其他进程（只针对锁文件记录的查看器 PID）。"""
+    return protocol.close_viewer(timeout=timeout)
+
+
+def update_viewer_shortcuts(shortcuts):
+    """把最新快捷键热更新到运行中的查看器；未运行则返回 False。
+    不改变图片列表，因此不会触发重新加载/重置缩放。"""
+    if not protocol.is_viewer_alive():
+        return False
+    try:
+        protocol.request_shortcuts(shortcuts)
+        return True
+    except Exception:
+        return False
 
 
 __all__ = [
     "open_image_viewer",
     "is_viewer_running",
     "close_image_viewer",
+    "update_viewer_shortcuts",
 ]

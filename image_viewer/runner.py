@@ -94,10 +94,18 @@ class ViewerRunner:
         cmd = protocol.read_cmd()
         if not cmd:
             return
-        images = cmd.get("images", [])
-        idx = cmd.get("current_index", 0)
-        self.window.set_images(images, idx)
-        # 若附带快捷键更新，则应用
+        # 主程序请求关闭：正常退出应用（aboutToQuit/destroyed 会释放锁）
+        if cmd.get("close"):
+            self.shutdown()
+            self.app.quit()
+            return
+        # 仅在命令真正携带 images 时才更新图片列表，
+        # 避免"仅快捷键更新"命令误清空当前图片。
+        if "images" in cmd:
+            images = cmd.get("images", [])
+            idx = cmd.get("current_index", 0)
+            self.window.set_images(images, idx)
+        # 若附带快捷键更新，则应用（在主线程执行，安全）
         if cmd.get("shortcuts"):
             self.window.set_shortcuts(cmd["shortcuts"])
         # 若主程序请求置于前台（再次打开时唤醒）
@@ -105,6 +113,15 @@ class ViewerRunner:
             self.window.bring_to_front()
 
     def shutdown(self):
+        # 停止轮询/定时器，避免退出期继续访问已销毁对象
+        for attr in ("_heartbeat_timer", "_poll_timer"):
+            timer = getattr(self, attr, None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except Exception:
+                    pass
+        self._watcher = None
         if self._have_lock:
             protocol.release_lock()
             self._have_lock = False
