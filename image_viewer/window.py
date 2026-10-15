@@ -689,13 +689,17 @@ class ImageViewerWindow(QMainWindow):
         # 按初始 layout_mode 显示/隐藏右侧面板
         self._apply_layout_mode()
 
-        # 置顶（可在打开时切换）
+        # 置顶标志（不在此处 show，统一在下方最大化时显示）
         if self._on_top:
-            self._set_topmost(True)
+            flags = self.windowFlags() | Qt.WindowStaysOnTopHint
+            self.setWindowFlags(flags)
 
         # 打开后加载
         self.set_active_panel(0, force=True)
         self._reload_panels(self._current)
+
+        # 打开时默认最大化（铺满当前屏幕）
+        self.showMaximized()
 
     # ── 面板与布局 ──
     def _build_central(self):
