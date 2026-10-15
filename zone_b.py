@@ -371,6 +371,19 @@ class ZoneBMixin:
         if group.get('fallback_image'):
             st.warning("⚠️ 图片未按规则匹配，显示的是文件夹内第一张图片")
 
+        # ── 内置查看器快捷入口 ──（始终渲染，快捷键 ` 与手动点击均可触发）
+        ivc1, ivc2 = st.columns([1, 4])
+        with ivc1:
+            if st.button("🔍 查看器", key="iv_open_viewer", use_container_width=True,
+                         help="打开/关闭内置图片查看器（快捷键 ` 反引号）"):
+                msg, ok = self._open_viewer_app()
+                if ok:
+                    st.toast(msg)
+                else:
+                    st.warning(msg)
+        with ivc2:
+            st.caption("快捷键 ` ：打开/关闭内置查看器（单图 / 双图并排）")
+
         images = group['images']
         if st.session_state.view_mode == "四宫格":
             r1 = st.columns(2); r2 = st.columns(2) if len(images)>2 else []

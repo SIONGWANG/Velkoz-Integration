@@ -145,6 +145,13 @@ class SettingsMixin:
             // 二级分类快捷键映射
             const l2Shortcuts = {l2_shortcuts};
 
+            // 取按钮文本：innerText 对折叠/隐藏元素可能为空，回退 textContent
+            function btnText(el) {{
+                if (!el) return '';
+                const t = el.innerText;
+                return (t && t.length) ? t : (el.textContent || '');
+            }}
+
             function findBtn(test) {{
                 const btns = doc.getElementsByTagName('button');
                 for (let i = 0; i < btns.length; i++) {{
@@ -159,7 +166,7 @@ class SettingsMixin:
                 // 查找所有按钮，匹配二级分类名称
                 const btns = doc.getElementsByTagName('button');
                 for (let i = 0; i < btns.length; i++) {{
-                    const text = btns[i].innerText.trim();
+                    const text = btnText(btns[i]).trim();
                     // 匹配格式: "🟢 分类名  [快捷键]" 或 "🟢 分类名"
                     if (text.includes(mapping) && text.includes('🟢')) return btns[i];
                 }}
@@ -195,31 +202,31 @@ class SettingsMixin:
 
                     // 提交并下一条 — 空格
                     if (e.key === ' ' || e.code === 'Space') {{
-                        if (clickIfBtn(b => b.innerText.includes('提交并下一条'))) e.preventDefault();
+                        if (clickIfBtn(b => btnText(b).includes('提交并下一条'))) e.preventDefault();
                         return;
                     }}
 
                     // 快捷合格提交 — X
                     if (key === 'X') {{
-                        if (clickIfBtn(b => b.innerText.includes('快捷合格'))) e.preventDefault();
+                        if (clickIfBtn(b => btnText(b).includes('快捷合格'))) e.preventDefault();
                         return;
                     }}
 
                     // 修改合格提交 — V
                     if (key === 'V') {{
-                        if (clickIfBtn(b => b.innerText.includes('修改合格'))) e.preventDefault();
+                        if (clickIfBtn(b => btnText(b).includes('修改合格'))) e.preventDefault();
                         return;
                     }}
 
                     // 上一条
                     if (e.key === 'ArrowLeft') {{
-                        if (clickIfBtn(b => b.innerText.includes('⬅️') || b.innerText.includes('上一条'))) e.preventDefault();
+                        if (clickIfBtn(b => btnText(b).includes('⬅️') || btnText(b).includes('上一条'))) e.preventDefault();
                         return;
                     }}
 
                     // 下一条
                     if (e.key === 'ArrowRight') {{
-                        if (clickIfBtn(b => b.innerText.includes('下一条 ➡️') || (b.innerText.includes('下一条') && !b.innerText.includes('提交')))) e.preventDefault();
+                        if (clickIfBtn(b => btnText(b).includes('下一条 ➡️') || (btnText(b).includes('下一条') && !btnText(b).includes('提交')))) e.preventDefault();
                         return;
                     }}
 
@@ -227,13 +234,20 @@ class SettingsMixin:
                     const viewKeys = {{'1': '🔍', '2': '🔴 原图', '3': '图 1', '4': '图 2'}};
                     if (viewKeys[e.key]) {{
                         const needle = viewKeys[e.key];
-                        if (clickIfBtn(b => b.innerText.includes(needle))) e.preventDefault();
+                        if (clickIfBtn(b => btnText(b).includes(needle))) e.preventDefault();
                         return;
                     }}
 
                     // 打开/关闭图片查看器（内置模式 toggle；系统模式打开）
                     if (e.key === '`' || e.key === '~') {{
-                        if (clickIfBtn(b => b.innerText.includes('查看器'))) e.preventDefault();
+                        // 优先按稳定的 key 类定位快捷入口（不受折叠/文本影响）
+                        const q = doc.querySelector('.st-key-iv_open_viewer button');
+                        if (q && !q.disabled) {{
+                            e.preventDefault();
+                            q.click();
+                        }} else if (clickIfBtn(b => btnText(b).includes('查看器'))) {{
+                            e.preventDefault();
+                        }}
                     }}
                 }} catch (err) {{
                     // 单个快捷键处理失败不得使其它监听器失效

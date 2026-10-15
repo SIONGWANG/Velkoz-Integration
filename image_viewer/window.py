@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
     QGraphicsRectItem, QStatusBar, QLabel, QToolBar, QApplication, QStyle,
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QFileDialog, QInputDialog, QComboBox, QSpinBox,
-    QWidget, QSplitter,
+    QWidget,
 )
 
 from . import protocol
@@ -686,6 +686,8 @@ class ImageViewerWindow(QMainWindow):
 
         # 应用快捷键（覆盖硬编码默认值）
         self._apply_shortcuts()
+        # 按初始 layout_mode 显示/隐藏右侧面板
+        self._apply_layout_mode()
 
         # 置顶（可在打开时切换）
         if self._on_top:
@@ -701,18 +703,14 @@ class ImageViewerWindow(QMainWindow):
         h = QHBoxLayout(central)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(2)
-        self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setChildrenCollapsible(False)
-        for p in self.panels:
-            self.splitter.addWidget(p.container)
-        h.addWidget(self.splitter)
+        # 左右等分（隐藏右侧时左侧自动占满），比 QSplitter.setSizes 更可预测
+        h.addWidget(self.panels[0].container, 1)
+        h.addWidget(self.panels[1].container, 1)
         self.setCentralWidget(central)
 
     def _apply_layout_mode(self):
         dual = (self._layout_mode == viewer_config.LAYOUT_DUAL)
         self.panels[1].container.setVisible(dual)
-        if dual:
-            self.splitter.setSizes([1, 1])
         if hasattr(self, "act_dual"):
             self.act_dual.blockSignals(True)
             self.act_dual.setChecked(dual)
