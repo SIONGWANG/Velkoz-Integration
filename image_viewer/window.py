@@ -57,6 +57,8 @@ class ImageCanvas(QGraphicsView):
         self._image_size = (0, 0)
         self._img_path = None
         self._panning = False
+        # 自适应模式：为 True 时跟随窗口尺寸重新 Fit（打开/最大化/调整窗口时图像铺满）
+        self._fit_mode = True
 
         self.setRenderHints(
             QPainter.Antialiasing | QPainter.SmoothPixmapTransform
@@ -131,11 +133,13 @@ class ImageCanvas(QGraphicsView):
     # ── 缩放 ──
     def fit_to_window(self):
         if not self._item.pixmap().isNull():
+            self._fit_mode = True
             self.fitInView(self._item, Qt.KeepAspectRatio)
             self._notify_status()
 
     def set_100(self):
         if self.can_load():
+            self._fit_mode = False
             self.resetTransform()
             self._notify_status()
 
@@ -152,8 +156,20 @@ class ImageCanvas(QGraphicsView):
         target = current * factor
         if target < ZOOM_MIN or target > ZOOM_MAX:
             return
+        self._fit_mode = False   # 用户手动缩放后进入手动模式
         self.scale(factor, factor)
         self._notify_status()
+
+    # 自适应模式下，窗口尺寸变化（打开/最大化/调整大小/切换布局）时重新铺满
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._fit_mode and self.can_load():
+            self.fit_to_window()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._fit_mode and self.can_load():
+            self.fit_to_window()
 
     # ── 事件：滚轮缩放 / 右键平移 / 框选 / 标注 ──
     def wheelEvent(self, event):
@@ -1078,10 +1094,14 @@ class ImageViewerWindow(QMainWindow):
 
     # ── 状态栏 ──
     def refresh_status(self):
+        if not hasattr(self, "status_index"):
+            return
         p = self.active_panel()
         self.update_status(p, p.canvas.image_size(), p.canvas.transform().m11())
 
     def update_status(self, panel, image_size, zoom):
+        if not hasattr(self, "status_index"):
+            return
         imgs = self._images
         if imgs and panel.image_path:
             idx = panel.index + 1
