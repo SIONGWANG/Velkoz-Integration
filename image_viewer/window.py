@@ -96,17 +96,13 @@ class ImageCanvas(QGraphicsView):
 
     # ── 自适应渲染质量 ──
     def _apply_quality(self):
-        """依据当前缩放比例切换渲染策略：
-        - 放大到 >=100%：关闭平滑，像素级清晰（边缘锐利）
-        - 缩小到 <100%：开启平滑下采样，避免粗糙锯齿
-        -->
-        Real image data is always used (no permanent resize); only the
-        display hint changes."""
+        """渲染质量策略：
+        - 自适应(Fit)模式：始终平滑 —— 铺满时无论放大或缩小，观感更佳（避免放大后发糊/发块）
+        - 手动模式：缩小(<100%)平滑；放大到 >=100% 关闭平滑，像素级清晰
+        始终使用原图像素，不做永久缩放，仅改变显示插值方式。"""
         z = self.transform().m11()
-        if z >= 0.98:
-            self.setRenderHint(QPainter.SmoothPixmapTransform, False)
-        else:
-            self.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        smooth = self._fit_mode or (z < 0.98)
+        self.setRenderHint(QPainter.SmoothPixmapTransform, smooth)
         self.setRenderHint(QPainter.Antialiasing, True)
 
     # ── 图片加载 ──

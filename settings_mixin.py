@@ -1300,24 +1300,21 @@ class SettingsMixin:
             st.rerun()
 
         # ── 查看布局：单图 / 双图并排（v1.22.0，仅内置查看器） ──
+        # 只在用户真正改变时保存（on_change），避免每次 rerun/提交都把磁盘配置覆盖回旧值。
         layout_mode = iv_config.get_layout_mode()
+        # 让选择器与磁盘配置保持一致（查看器内切换布局后，这里也能同步显示）
+        if st.session_state.get('_iviewer_layout') != layout_mode:
+            st.session_state['_iviewer_layout'] = layout_mode
         layout_labels = iv_config.LAYOUT_MODE_LABELS
-        sel_layout = st.radio(
+        st.radio(
             "查看布局",
             options=[iv_config.LAYOUT_SINGLE, iv_config.LAYOUT_DUAL],
             format_func=lambda m: layout_labels.get(m, m),
             index=0 if layout_mode == iv_config.LAYOUT_SINGLE else 1,
             key="_iviewer_layout",
             horizontal=True,
+            on_change=self._on_iviewer_layout_change,
         )
-        if sel_layout != layout_mode:
-            iv_config.save_layout_mode(sel_layout)
-            try:
-                from image_viewer import update_viewer_layout
-                update_viewer_layout(sel_layout)
-            except Exception:
-                logging.warning("热更新查看器布局失败", exc_info=True)
-            st.rerun()
 
         click_col, status_col = st.columns([1.5, 1])
         with click_col:
@@ -1393,6 +1390,21 @@ class SettingsMixin:
                         st.session_state[f"_iv_short_{k}"] = dv
                     st.session_state['_iv_short_msg'] = "已恢复默认快捷键并应用。"
                     st.rerun()
+
+    def _on_iviewer_layout_change(self):
+        """查看布局选择变化时：保存并热更新运行中的查看器（仅用户改变时触发）。"""
+        try:
+            from image_viewer import config as iv_config, update_viewer_layout
+        except Exception:
+            return
+        sel = st.session_state.get('_iviewer_layout')
+        if sel not in (iv_config.LAYOUT_SINGLE, iv_config.LAYOUT_DUAL):
+            return
+        iv_config.save_layout_mode(sel)
+        try:
+            update_viewer_layout(sel)
+        except Exception:
+            logging.warning("热更新查看器布局失败", exc_info=True)
 
     def _render_hotkeys_section(self):
         """快捷键开关 + 说明面板"""
