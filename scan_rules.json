@@ -3,12 +3,6 @@
   "folder_pattern": {
     "blocks": [
       {
-        "rule": "literal",
-        "count": 6,
-        "label": "",
-        "value": "JD"
-      },
-      {
         "rule": "digits",
         "count": 6,
         "label": ""
@@ -23,14 +17,23 @@
     },
     {
       "stem_suffixes": [
+        "_2"
+      ]
+    },
+    {
+      "stem_suffixes": [
         "_result"
+      ]
+    },
+    {
+      "stem_suffixes": [
+        "_1"
       ]
     }
   ],
   "text_slots": [
     {
       "suffixes": [
-        "_ZH",
         "_CH"
       ]
     },

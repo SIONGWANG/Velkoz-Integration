@@ -42,6 +42,10 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         if 'root_path' not in st.session_state: st.session_state.root_path = settings.get('root_path', "")
         if 'current_id' not in st.session_state: st.session_state.current_id = None
         if 'last_loaded_id' not in st.session_state: st.session_state.last_loaded_id = None
+        if 'search_results' not in st.session_state: st.session_state.search_results = []
+        if 'search_result_ids' not in st.session_state: st.session_state.search_result_ids = []
+        if 'search_active' not in st.session_state: st.session_state.search_active = False
+        if 'search_last_query' not in st.session_state: st.session_state.search_last_query = {}
 
         if 'layout_width' not in st.session_state: st.session_state.layout_width = settings.get('layout_width', 80)
         if 'layout_height' not in st.session_state: st.session_state.layout_height = settings.get('layout_height', 85)
@@ -237,7 +241,13 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 sync = get_sync_manager()
                 img_groups = st.session_state.data_groups
                 all_ids = [g['id'] for g in img_groups]
-                curr_idx = all_ids.index(group['id']) if group['id'] in all_ids else 0
+                # 查询/筛选模式下列表与 C 区导航使用同一份可见 ID，避免进度显示错位
+                nav_ids = self._get_visible_ids()
+                # 非查询模式保留旧兜底；查询模式绝不回退到全量，否则进度会越过查询范围
+                if group['id'] not in nav_ids and not st.session_state.get('search_active'):
+                    nav_ids = all_ids
+                curr_idx = nav_ids.index(group['id']) if group['id'] in nav_ids else 0
+                nav_total = len(nav_ids) if nav_ids else 1
                 # 获取文件夹中所有图片
                 root = group.get('root', '')
                 all_images = []
@@ -250,10 +260,10 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 st.session_state._dock_sample = {
                     "sample_id": group['id'],
                     "current_index": curr_idx + 1,
-                    "total": len(all_ids),
+                    "total": nav_total,
                     "images": all_images,
                 }
-                sync.update_images(group['id'], curr_idx + 1, len(all_ids), all_images)
+                sync.update_images(group['id'], curr_idx + 1, nav_total, all_images)
             except Exception:
                 pass
 

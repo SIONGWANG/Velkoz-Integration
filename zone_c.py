@@ -106,31 +106,38 @@ class ZoneCMixin:
                 with cols[idx]:
                     st.image(img, use_container_width=True)
 
-        # 3. 上一条 / 下一条（跟随 A 区筛选条件）
+        # 3. 上一条 / 下一条（跟随 A 区筛选 + 快速查询结果）
         st.divider()
         nav_groups = st.session_state.data_groups
-        all_ids = list(dict.fromkeys(g['id'] for g in nav_groups))
-        filtered_ids = self._get_filtered_ids()
-        nav_ids = filtered_ids if filtered_ids else all_ids
-        curr_idx = nav_ids.index(st.session_state.current_id) if st.session_state.current_id in nav_ids else 0
+        nav_ids = self._get_visible_ids()
+        id_to_group = {g['id']: g for g in nav_groups}
+        preload_groups = [id_to_group[gid] for gid in nav_ids if gid in id_to_group]
+        curr_idx = nav_ids.index(st.session_state.current_id) if st.session_state.current_id in nav_ids else -1
 
         nav_c1, nav_c2 = st.columns(2)
         with nav_c1:
-            if st.button("⬅️ 上一条", use_container_width=True, disabled=(curr_idx == 0)):
+            if st.button("⬅️ 上一条", use_container_width=True, disabled=(curr_idx <= 0)):
                 new_id = nav_ids[curr_idx - 1]
                 st.session_state.current_id = new_id; st.session_state.focus_img_idx = 0
                 st.session_state.needs_scroll_top = True
-                all_idx = all_ids.index(new_id)
-                preload_next_images(all_idx, nav_groups)
+                preload_next_images(curr_idx - 1, preload_groups)
                 self._rerun_app()
         with nav_c2:
-            if st.button("下一条 ➡️", use_container_width=True, disabled=(curr_idx == len(nav_ids) - 1)):
+            if st.button("下一条 ➡️", use_container_width=True,
+                         disabled=(curr_idx < 0 or curr_idx >= len(nav_ids) - 1)):
                 new_id = nav_ids[curr_idx + 1]
                 st.session_state.current_id = new_id; st.session_state.focus_img_idx = 0
                 st.session_state.needs_scroll_top = True
-                all_idx = all_ids.index(new_id)
-                preload_next_images(all_idx, nav_groups)
+                preload_next_images(curr_idx + 1, preload_groups)
                 self._rerun_app()
+
+        if nav_ids and curr_idx >= 0:
+            scope_label = " 查询结果" if st.session_state.get('search_active') else ""
+            st.caption(f"第 {curr_idx + 1}/{len(nav_ids)} 条{scope_label}")
+        elif nav_ids:
+            st.caption("当前记录不在查询/筛选范围内")
+        else:
+            st.caption("当前查询/筛选范围无数据")
 
         # 4. 分类标签 L1 / L2
         config = st.session_state.categories_config
@@ -340,22 +347,27 @@ class ZoneCMixin:
                     elif is_submit:
                         st.session_state['_ee_submit_flash'] = True
                         on_status_judged(status_sel)
-                        # 使用 nav_ids（已筛选）而非 all_ids（全量），避免筛选条件下跳转错误
-                        if curr_idx < len(nav_ids) - 1:
+                        # nav_ids 同时包含状态筛选和快速查询范围，提交后必须在该范围内前进
+                        search_active = st.session_state.get('search_active', False)
+                        filter_val = st.session_state.get('filter_pills', '全部')
+                        partial_scope = search_active or filter_val != '全部'
+                        if not nav_ids:
+                            st.toast("当前查询/筛选范围无数据，未改变完成状态", icon="⚠️")
+                        elif 0 <= curr_idx < len(nav_ids) - 1:
                             st.session_state.current_id = nav_ids[curr_idx + 1]
                             st.session_state.focus_img_idx = 0
                             # 跳转下一条需要在 fragment 外更新 B 区，触发 app 级别单次 rerun
                             self._rerun_app()
+                        elif partial_scope:
+                            # 查询或筛选只是部分范围，处理完回到首条，不能误判整批完成
+                            st.session_state.current_id = nav_ids[0]
+                            st.session_state.focus_img_idx = 0
+                            scope_name = "查询结果" if search_active else "筛选列表"
+                            st.toast(f"📋 {scope_name}已全部处理完，回到首条", icon="✅")
+                            self._rerun_app()
                         else:
-                            # 筛选条件下不触发全量完成面板，跳回筛选列表首条
-                            if st.session_state.get('filter_pills', '全部') != '全部':
-                                st.session_state.current_id = nav_ids[0]
-                                st.session_state.focus_img_idx = 0
-                                st.toast("📋 筛选列表已全部处理完，回到首条", icon="✅")
-                                self._rerun_app()
-                            else:
-                                st.session_state._batch_completed = True
-                                self._rerun_app()
+                            st.session_state._batch_completed = True
+                            self._rerun_app()
                 else:
                     if save_msg:
                         st.error(save_msg)

@@ -336,6 +336,13 @@ class DataMixin:
 
         _fragment()
 
+    def _clear_search_results(self):
+        """退出快速查询模式，仅清空结果状态，保留输入框内容。"""
+        st.session_state.search_results = []
+        st.session_state.search_result_ids = []
+        st.session_state.search_active = False
+        st.session_state.search_last_query = {}
+
     def reset_task_state(self):
         prefixes = ("preview_", "feedback_", "status_pills_", "paste_key_", "upload_btn_",
                     "_df_cache_", "_df_lookup_", "_last_tags_", "_manual_edit_", "_pending_tag_sync_",
@@ -354,6 +361,10 @@ class DataMixin:
         st.session_state.status_pills = None
         _load_and_rotate.cache_clear()
         st.session_state.filter_pills = "全部"
+        self._clear_search_results()
+        # 扫描发生在 A 区渲染之后，不能在这里直接删除已实例化的搜索 widget key；
+        # 交给下一次 A 区渲染顶部的延迟清空逻辑处理。
+        st.session_state._search_clear_pending = True
         st.session_state.needs_scroll_top = False
         st.session_state.is_scanning = False
         st.session_state._batch_completed = False
@@ -420,8 +431,25 @@ class DataMixin:
         else:
             return all_ids
 
+    def _get_visible_ids(self, status_map=None):
+        """当前可见列表：状态筛选结果；查询模式下再与命中 ID 保序取交集。
+
+        A 区列表、C 区上一条/下一条、B 区进度、预加载都必须使用这一份列表，
+        确保“看到什么就切换什么”。
+        """
+        filtered_ids = self._get_filtered_ids(status_map)
+        if not st.session_state.get('search_active'):
+            return filtered_ids
+
+        result_ids = [str(item_id) for item_id in st.session_state.get('search_result_ids', [])]
+        if not result_ids:
+            return filtered_ids
+
+        allowed = set(filtered_ids)
+        return [item_id for item_id in result_ids if item_id in allowed]
+
     def get_next_group_id(self, current_id):
-        filtered_ids = self._get_filtered_ids()
+        filtered_ids = self._get_visible_ids()
         if not filtered_ids:
             return None
         if current_id not in filtered_ids:
@@ -443,7 +471,7 @@ class DataMixin:
         if now - last < 0.3:
             return
         st.session_state._last_nav_time = now
-        filtered_ids = self._get_filtered_ids()
+        filtered_ids = self._get_visible_ids()
         if st.session_state.current_id in filtered_ids:
             curr_idx = filtered_ids.index(st.session_state.current_id)
             if curr_idx > 0:
@@ -462,7 +490,7 @@ class DataMixin:
         if now - last < 0.3:
             return
         st.session_state._last_nav_time = now
-        filtered_ids = self._get_filtered_ids()
+        filtered_ids = self._get_visible_ids()
         if st.session_state.current_id in filtered_ids:
             curr_idx = filtered_ids.index(st.session_state.current_id)
             if curr_idx < len(filtered_ids) - 1:
@@ -662,6 +690,11 @@ class DataMixin:
                 df = pd.read_csv(csv_file, dtype=str, encoding='utf-8-sig')
                 if '图片ID' in df.columns:
                     df['图片ID'] = df['图片ID'].astype(str).str.strip()
+                    # 图片ID 是唯一键：保存前先合并历史重复行，保留最后一条，
+                    # 避免同一条记录被修改后出现两行。
+                    _dup_mask = df['图片ID'].duplicated(keep='last') & ~df['图片ID'].isin(['', 'nan'])
+                    if _dup_mask.any():
+                        df = df[~_dup_mask].reset_index(drop=True)
                 mask = df['图片ID'] == target_id
                 if mask.any():
                     for key, value in record.items(): df.loc[mask, key] = str(value)
@@ -718,6 +751,7 @@ class DataMixin:
 
             st.session_state._saved_data_groups = st.session_state.data_groups.copy()
             st.session_state._saved_current_id = st.session_state.current_id
+            self._clear_search_results()
 
             st.session_state.data_groups = sampled
             st.session_state.current_id = sampled[0]['id']

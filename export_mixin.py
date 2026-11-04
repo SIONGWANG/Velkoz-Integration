@@ -125,6 +125,7 @@ class ExportMixin:
                         st.session_state.current_id = st.session_state._saved_current_id
                         st.session_state._saved_data_groups = None
                         st.session_state._saved_current_id = None
+                    self._clear_search_results()
                     st.rerun()
             else:
                 st.markdown("#### 🎯 抽检验收")

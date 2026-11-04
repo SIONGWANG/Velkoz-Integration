@@ -80,7 +80,7 @@ class ZoneAMixin:
 
                 # 处理清空操作（通过 flag 延迟重置，避免 widget 值冲突）
                 if st.session_state.pop("_search_clear_pending", False):
-                    st.session_state.search_results = []
+                    self._clear_search_results()
                     st.session_state.search_id_input = ""
                     st.session_state.search_tag_select = "全部"
                     st.session_state.search_text_input = ""
@@ -108,39 +108,87 @@ class ZoneAMixin:
                         df=df,
                         status_map=current_status_map,
                     )
-                    st.session_state.search_results = results
-
-                search_results = st.session_state.get("search_results", [])
-                if search_results:
-                    st.caption(f"找到 {len(search_results)} 条")
-                    status_emoji = {'合格': '🟢', '修改后合格': '🔵', '不合格': '🔴', '待定': '🟡'}
-                    for item in search_results:
-                        emoji = status_emoji.get(item['status'], '⚪')
-                        tags_str = f"  ({', '.join(item['tags'])})" if item['tags'] else ""
-                        if st.button(f"{emoji} {item['id']}{tags_str}", key=f"_qr_{item['id']}", use_container_width=True):
-                            st.session_state.current_id = item['id']
+                    if results:
+                        # 查询结果 ID 去重并保持数据集顺序；它是 A 区列表和 C 区导航的共同范围。
+                        result_ids = list(dict.fromkeys(str(item['id']) for item in results))
+                        st.session_state.search_results = results
+                        st.session_state.search_result_ids = result_ids
+                        st.session_state.search_active = True
+                        st.session_state.search_last_query = {
+                            "id": (search_id or "").strip(),
+                            "tag": "" if search_tag == "全部" else search_tag,
+                            "text": (search_text or "").strip(),
+                        }
+                        current_id = st.session_state.get('current_id')
+                        if current_id not in result_ids:
+                            st.session_state.current_id = result_ids[0]
                             st.session_state.focus_img_idx = 0
                             st.session_state.needs_scroll_top = True
-                            all_groups = st.session_state.get('data_groups', [])
-                            all_ids_qr = [g['id'] for g in all_groups]
-                            if item['id'] in all_ids_qr:
-                                preload_next_images(all_ids_qr.index(item['id']), all_groups)
-                            try:
-                                st.rerun(scope="app")
-                            except TypeError:
-                                st.rerun()
-                elif search_submitted:
-                    st.info("未找到匹配数据")
+                        # 查询范围变化后 C 区/B 区不在同一 fragment 内，必须 app 级 rerun 才能同步
+                        self._rerun_app()
+                    else:
+                        self._clear_search_results()
+                        st.info("未找到匹配数据，已保留当前列表")
 
-            filtered_ids = self._get_filtered_ids(current_status_map)
+                search_active = st.session_state.get("search_active", False)
+                if search_active:
+                    search_ids = st.session_state.get("search_result_ids", [])
+                    visible_ids = self._get_visible_ids(current_status_map)
+                    total_hits = len(search_ids)
+                    visible_hits = len(visible_ids)
+                    current_pos = (visible_ids.index(st.session_state.current_id) + 1
+                                   if st.session_state.get("current_id") in visible_ids else 0)
+                    if visible_hits == total_hits:
+                        summary = f"✅ 查询生效：命中 {total_hits} 条"
+                        if current_pos:
+                            summary += f" · 当前第 {current_pos}/{total_hits} 条"
+                    else:
+                        summary = f"✅ 查询生效：命中 {total_hits} 条 · 当前筛选下 {visible_hits} 条"
+                        if current_pos:
+                            summary += f" · 第 {current_pos}/{visible_hits} 条"
+                    st.success(summary)
+                    st.caption("← / → 或 C 区「上一条 / 下一条」在查询结果内切换")
+
+            filtered_ids = self._get_visible_ids(current_status_map)
+            search_active = st.session_state.get("search_active", False)
+
+            if search_active:
+                total_hits = len(st.session_state.get("search_result_ids", []))
+                visible_hits = len(filtered_ids)
+                current_pos = (filtered_ids.index(st.session_state.current_id) + 1
+                               if st.session_state.get("current_id") in filtered_ids else 0)
+                if visible_hits == total_hits:
+                    list_caption = f"🔍 查询结果 {visible_hits} 条"
+                    if current_pos:
+                        list_caption += f" · 第 {current_pos}/{visible_hits} 条"
+                else:
+                    list_caption = f"🔍 查询结果 {visible_hits}/{total_hits} 条（当前筛选下）"
+                    if current_pos:
+                        list_caption += f" · 第 {current_pos}/{visible_hits} 条"
+                st.caption(list_caption)
+                if st.button("退出查询", key="search_exit_results", use_container_width=True):
+                    self._clear_search_results()
+                    self._rerun_app()
 
             if not filtered_ids:
-                st.info(f"筛选「{filter_val}」下无数据，请切换筛选条件")
+                if search_active:
+                    st.warning(f"查询结果在筛选「{filter_val}」下无数据")
+                    if filter_val != "全部":
+                        if st.button("查看全部查询结果", key="search_show_all_results", use_container_width=True):
+                            st.session_state.filter_pills = "全部"
+                            self._rerun_app()
+                    else:
+                        st.info("查询结果为空，请调整查询条件或退出查询")
+                else:
+                    st.info(f"筛选「{filter_val}」下无数据，请切换筛选条件")
                 return
 
             if st.session_state.current_id not in filtered_ids:
                 st.session_state.current_id = filtered_ids[0]
                 st.session_state.focus_img_idx = 0
+                # 查询模式下筛选变化可能让当前记录退出范围，需同步 B/C 区
+                if search_active:
+                    self._rerun_app()
 
             id_to_group = {g['id']: g for g in groups}
 
@@ -153,8 +201,6 @@ class ZoneAMixin:
                     display_name = user_name if len(user_name) <= 6 else user_name[:5] + '…'
                     return f"{emoji} {item_id}  \u00b7 {display_name}"
                 return f"{emoji} {item_id}"
-
-            if st.session_state.current_id not in all_ids: st.session_state.current_id = all_ids[0]
 
             # 分页参数
             PAGE_SIZE = 20
@@ -225,13 +271,10 @@ class ZoneAMixin:
                 st.session_state.needs_scroll_top = True
                 st.session_state._batch_completed = False
                 st.session_state._completion_balloons_shown = False
-                all_groups = st.session_state.get('data_groups', [])
-                new_idx = all_ids.index(selected_id) if selected_id in all_ids else 0
-                preload_next_images(new_idx, all_groups)
-                try:
-                    st.rerun(scope="app")
-                except TypeError:
-                    st.rerun()
+                new_idx = filtered_ids.index(selected_id) if selected_id in filtered_ids else 0
+                preload_groups = [id_to_group[gid] for gid in filtered_ids if gid in id_to_group]
+                preload_next_images(new_idx, preload_groups)
+                self._rerun_app()
 
             # 页码提示
             if total_pages > 1:

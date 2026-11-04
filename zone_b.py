@@ -353,10 +353,11 @@ class ZoneBMixin:
     @st.fragment
     def render_b_image_area(self, group):
         """B 区图片渲染"""
-        img_groups = st.session_state.data_groups
-        all_ids_b = [g['id'] for g in img_groups]
-        curr_idx_b = all_ids_b.index(st.session_state.current_id) if st.session_state.current_id in all_ids_b else 0
-        total_b = len(all_ids_b)
+        visible_ids_b = self._get_visible_ids()
+        if not visible_ids_b:
+            visible_ids_b = [group['id']]
+        curr_idx_b = visible_ids_b.index(st.session_state.current_id) if st.session_state.current_id in visible_ids_b else 0
+        total_b = len(visible_ids_b)
 
         pct = (curr_idx_b + 1) / total_b * 100 if total_b > 0 else 0
         components.html(f"""
