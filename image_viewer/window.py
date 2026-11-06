@@ -7,7 +7,7 @@ import os
 import time
 
 from PySide6.QtCore import Qt, QRectF, QRect, QSize, QPointF, QPoint
-from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen
+from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen, QTransform
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
     QGraphicsRectItem, QStatusBar, QLabel, QToolBar, QApplication, QStyle,
@@ -18,9 +18,29 @@ from PySide6.QtWidgets import (
 from . import protocol
 from . import config as viewer_config
 from . import branding
+from .image_loader import ImageLoader
 from .annotation import Annotation, TOOL_ARROW, TOOL_RECT, TOOL_ELLIPSE, TOOL_PEN, TOOL_TEXT, TOOL_SELECT, ALL_TOOLS
 
 RESOLUTION = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
+
+_UNSET = object()
+
+
+class ViewState:
+    """锁定视图状态：以图片宽高归一化的中心点 + 相对 Fit 的缩放倍数。
+
+    u/v ∈ [0,1] 表示视口中心在图片中的相对位置；zoom=1 表示正好适应窗口。
+    相同宽高比的图片切换时能精确保持同一区域；宽高比不同时保留相对位置与相对缩放。
+    """
+
+    __slots__ = ("u", "v", "zoom", "fit")
+
+    def __init__(self, u=0.5, v=0.5, zoom=1.0, fit=True):
+        self.u = float(u)
+        self.v = float(v)
+        self.zoom = float(zoom)
+        self.fit = bool(fit)
+
 
 
 def _relative_source(path):
@@ -59,6 +79,14 @@ class ImageCanvas(QGraphicsView):
         self._panning = False
         # 自适应模式：为 True 时跟随窗口尺寸重新 Fit（打开/最大化/调整窗口时图像铺满）
         self._fit_mode = True
+        # 当前是否已加载全分辨率原图（False 时可能只有预览或仍在加载）
+        self._full_loaded = False
+        # 最近一次锁定视图状态（用于窗口/分栏尺寸变化后按新视口重新套用）
+        self._resize_state = None
+        self._resize_guard = False
+        # 用户是否手动调整过视图（缩放/1:1/平移/Fit）；用于区分“用户视图”与“套用锁定视图”，
+        # 避免宽高比变化导致视图被夹紧后又把夹紧后的结果写回锁定状态。
+        self._view_dirty = False
 
         self.setRenderHints(
             QPainter.Antialiasing | QPainter.SmoothPixmapTransform
@@ -84,6 +112,16 @@ class ImageCanvas(QGraphicsView):
         self.setAcceptDrops(False)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
 
+        # 大图异步加载时的占位提示（不阻塞、不响应鼠标）
+        self._loading_label = QLabel("正在加载图片…", self.viewport())
+        self._loading_label.setStyleSheet(
+            "QLabel{color:#c7c9ff;background:rgba(35,35,42,0.88);"
+            "border:1px solid #4f46e5;border-radius:8px;padding:10px 18px;"
+            "font-size:14px;font-weight:600;}"
+        )
+        self._loading_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._loading_label.hide()
+
         # 模式状态：view / capture / draw / select
         self._mode = "view"
         self._sel_start = None       # 视图/场景坐标起点
@@ -107,18 +145,120 @@ class ImageCanvas(QGraphicsView):
 
     # ── 图片加载 ──
     def load_image(self, path):
+        """同步加载（清空/兼容兜底用）。正常切换走 begin_load + 异步加载。"""
         if not path or not os.path.isfile(path):
             return False, f"图片不存在或无法读取：{path}"
         pm = QPixmap(path)
         if pm.isNull():
             return False, f"无法解码图片：{path}"
-        self._item.setPixmap(pm)
         self._img_path = path
-        self._image_size = (pm.width(), pm.height())
-        self._scene.setSceneRect(QRectF(0, 0, pm.width(), pm.height()))
-        self.resetTransform()
+        self._set_item_pixmap(pm, (pm.width(), pm.height()), preview=False)
         self.fit_to_window()
         return True, ""
+
+    def clear_image(self):
+        """彻底清空画布（无图/占位状态）。"""
+        self._item.setPixmap(QPixmap())
+        self._item.setTransform(QTransform())
+        self._item.setPos(0, 0)
+        self._img_path = None
+        self._image_size = (0, 0)
+        self._full_loaded = False
+        self._scene.setSceneRect(QRectF())
+        self._loading_label.hide()
+        self.resetTransform()
+        self._notify_status()
+
+    def begin_load(self, path, size, preview_pm=None, full_pm=None, state=None):
+        """开始显示一张图：优先用缓存全图，其次缓存预览，否则显示加载占位。
+
+        `size` 为原图真实尺寸（QImageReader 快速读取），预览图会按该尺寸拉伸到
+        场景坐标，因此标注、截图与视图状态始终以原图坐标系为准。
+        """
+        self._img_path = path
+        w, h = (int(size[0]), int(size[1])) if size else (0, 0)
+        if full_pm is not None and not full_pm.isNull():
+            self._set_item_pixmap(full_pm, (full_pm.width(), full_pm.height()), preview=False)
+            self._apply_state_or_fit(state)
+            return True
+        if preview_pm is not None and not preview_pm.isNull() and w > 0 and h > 0:
+            self._set_item_pixmap(preview_pm, (w, h), preview=True)
+            self._apply_state_or_fit(state)
+            return True
+        # 没有缓存：清空旧图，显示占位，避免误把上一张图当成新图
+        self._item.setPixmap(QPixmap())
+        self._item.setTransform(QTransform())
+        self._item.setPos(0, 0)
+        self._image_size = (w, h)
+        self._full_loaded = False
+        self._scene.setSceneRect(QRectF(0, 0, w, h) if w > 0 and h > 0 else QRectF())
+        self._apply_state_or_fit(state)
+        self._loading_label.show()
+        self._position_loading_label()
+        return True
+
+    def set_preview_pixmap(self, path, pm):
+        """工作线程预览解码完成：无缝替换占位/旧图。"""
+        if path != self._img_path or pm is None or pm.isNull() or self._full_loaded:
+            return
+        w, h = self._image_size
+        if w <= 0 or h <= 0:
+            w, h = pm.width(), pm.height()
+        self._set_item_pixmap(pm, (w, h), preview=True)
+
+    def set_full_pixmap(self, path, pm):
+        """工作线程全图解码完成：替换预览，保持当前视图不跳动。"""
+        if path != self._img_path or pm is None or pm.isNull():
+            return
+        new_size = (pm.width(), pm.height())
+        old_size = self._image_size
+        if old_size == new_size:
+            self._set_item_pixmap(pm, new_size, preview=False)
+            self._notify_status()
+            return
+        state = self.capture_view_state()
+        self._set_item_pixmap(pm, new_size, preview=False)
+        self._apply_state_or_fit(state)
+
+    def _set_item_pixmap(self, pm, size, preview):
+        """preview=True 时用 item 变换把预览图拉伸到原图尺寸，场景坐标无需改变。"""
+        w, h = int(size[0]), int(size[1])
+        self._item.setPixmap(pm)
+        if preview and pm.width() > 0 and pm.height() > 0:
+            self._item.setTransform(
+                QTransform().scale(w / pm.width(), h / pm.height())
+            )
+        else:
+            self._item.setTransform(QTransform())
+        self._item.setPos(0, 0)
+        self._image_size = (w, h)
+        self._full_loaded = not preview
+        self._scene.setSceneRect(QRectF(0, 0, w, h) if w > 0 and h > 0 else QRectF())
+        self._loading_label.hide()
+
+    def _position_loading_label(self):
+        try:
+            self._loading_label.adjustSize()
+            vp = self.viewport()
+            x = max(0, (vp.width() - self._loading_label.width()) // 2)
+            y = max(0, (vp.height() - self._loading_label.height()) // 2)
+            self._loading_label.move(x, y)
+            self._loading_label.raise_()
+        except Exception:
+            pass
+
+    def original_pixmap(self):
+        """返回用于截图裁剪的全分辨率原图（必要时同步解码）。"""
+        if self._full_loaded:
+            pm = self._item.pixmap()
+            if not pm.isNull():
+                return pm
+        if not self._img_path:
+            return QPixmap()
+        return self._owner.window._loader.load_synchronous(self._img_path)
+
+    def is_full_resolution(self):
+        return bool(self._full_loaded)
 
     def can_load(self):
         return self._img_path is not None
@@ -126,18 +266,103 @@ class ImageCanvas(QGraphicsView):
     def image_size(self):
         return self._image_size
 
+    def fit_scale(self):
+        """当前视口下 1:1 适应窗口的缩放倍数（智能补回滚动条占用的空间，保持稳定）。"""
+        w, h = self._image_size
+        if w <= 0 or h <= 0:
+            return 1.0
+        vw = max(1, self.viewport().width())
+        vh = max(1, self.viewport().height())
+        # 手动放大出现滚动条时，补回滚动条宽度/高度，得到“无滚动条时”的 Fit 比例。
+        # 这样反复采集/套用视图不会因为滚动条出现而逐次漂移。
+        vb = self.verticalScrollBar()
+        hb = self.horizontalScrollBar()
+        if vb is not None and vb.isVisible():
+            vw += vb.sizeHint().width()
+        if hb is not None and hb.isVisible():
+            vh += hb.sizeHint().height()
+        return min(vw / float(w), vh / float(h))
+
+    def capture_view_state(self):
+        """采集当前视图：归一化中心 + 相对 Fit 的缩放。"""
+        w, h = self._image_size
+        if not self._img_path or w <= 0 or h <= 0:
+            return None
+        if self._fit_mode:
+            st = ViewState(0.5, 0.5, 1.0, True)
+            self._resize_state = st
+            return st
+        cur = self.transform().m11()
+        fs = self.fit_scale()
+        if fs <= 0:
+            fs = 1.0
+        center = self.mapToScene(self.viewport().rect().center())
+        u = min(1.0, max(0.0, center.x() / float(w)))
+        v = min(1.0, max(0.0, center.y() / float(h)))
+        st = ViewState(u, v, cur / fs, False)
+        self._resize_state = st
+        return st
+
+    def apply_view_state(self, state):
+        """套用锁定视图。宽高比不同时保留相对中心与相对 Fit 缩放。"""
+        w, h = self._image_size
+        if w <= 0 or h <= 0:
+            return
+        if state is None:
+            self.fit_to_window()
+            return
+        self._resize_state = state
+        # 这是程序套用锁定视图，不是用户手动调整
+        self._view_dirty = False
+        if state.fit:
+            self._fit_mode = True
+            if not self._item.pixmap().isNull():
+                self.fitInView(self._item, Qt.KeepAspectRatio)
+            else:
+                fs = self.fit_scale()
+                self.resetTransform()
+                self.scale(fs, fs)
+                self.centerOn(QPointF(w / 2.0, h / 2.0))
+        else:
+            self._fit_mode = False
+            fs = self.fit_scale()
+            target = fs * max(0.001, state.zoom)
+            target = min(ZOOM_MAX, max(ZOOM_MIN, target))
+            self.resetTransform()
+            self.scale(target, target)
+            self.centerOn(QPointF(state.u * w, state.v * h))
+        self._apply_quality()
+        self._notify_status()
+
+    def _apply_state_or_fit(self, state):
+        if state is None:
+            self.fit_to_window()
+        else:
+            self.apply_view_state(state)
+
     # ── 缩放 ──
     def fit_to_window(self):
+        w, h = self._image_size
+        if w <= 0 or h <= 0:
+            return
+        self._fit_mode = True
         if not self._item.pixmap().isNull():
-            self._fit_mode = True
             self.fitInView(self._item, Qt.KeepAspectRatio)
-            self._notify_status()
+        else:
+            fs = self.fit_scale()
+            self.resetTransform()
+            self.scale(fs, fs)
+            self.centerOn(QPointF(w / 2.0, h / 2.0))
+        self._notify_status()
+        self._remember_view()
 
     def set_100(self):
         if self.can_load():
             self._fit_mode = False
             self.resetTransform()
             self._notify_status()
+            self._view_dirty = True
+            self._remember_view()
 
     def zoom_in(self):
         self._apply_zoom(ZOOM_STEP_IN)
@@ -155,15 +380,42 @@ class ImageCanvas(QGraphicsView):
         self._fit_mode = False   # 用户手动缩放后进入手动模式
         self.scale(factor, factor)
         self._notify_status()
+        self._view_dirty = True
+        self._remember_view()
+
+    def mark_user_fit(self):
+        """工具栏/快捷键触发 Fit：记录为用户手动调整。"""
+        self.fit_to_window()
+        self._view_dirty = True
+        self._remember_view()
+
+    def _remember_view(self):
+        """锁定模式下记住用户手动调整后的视图，窗口尺寸变化时按新视口保持。"""
+        try:
+            if self._owner.window._lock_view:
+                self.capture_view_state()
+        except Exception:
+            pass
 
     # 自适应模式下，窗口尺寸变化（打开/最大化/调整大小/切换布局）时重新铺满
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._position_loading_label()
         if self._fit_mode and self.can_load():
             self.fit_to_window()
+        elif self._owner.window._lock_view and self._resize_state is not None and self.can_load():
+            # 分栏/窗口尺寸变化后，按新视口重新套用锁定视图，避免双图切换后偏移
+            if self._resize_guard:
+                return
+            self._resize_guard = True
+            try:
+                self.apply_view_state(self._resize_state)
+            finally:
+                self._resize_guard = False
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._position_loading_label()
         if self._fit_mode and self.can_load():
             self.fit_to_window()
 
@@ -222,6 +474,8 @@ class ImageCanvas(QGraphicsView):
         if event.button() == Qt.RightButton:
             self._panning = False
             self.setCursor(Qt.OpenHandCursor)
+            self._view_dirty = True
+            self._remember_view()
             event.accept()
             return
         if event.button() == Qt.LeftButton and self._mode in ("capture", "draw", "select"):
@@ -576,7 +830,7 @@ class ImagePanel:
         self.undo_by_image[path] = list(self.undo_stack)
         self.redo_by_image[path] = list(self.redo_stack)
 
-    def load_index(self, idx):
+    def load_index(self, idx, view_state=_UNSET):
         imgs = self.window._images
         if not imgs:
             self.set_empty("")
@@ -596,32 +850,51 @@ class ImagePanel:
         self.redo_stack = list(self.redo_by_image.get(path, []))
         self.select_rect = None
         self._select_anchor_pt = None
-        ok, msg = self.canvas.load_image(path)
-        if not ok:
-            self.set_empty(msg)
+        # 锁定视图：从主窗口取得本次要套用的视图（关闭锁定时为 None → 恢复 Fit）
+        if view_state is _UNSET:
+            state = self.window.state_for_panel(self)
+        else:
+            state = view_state
+        size = self.window._loader.image_info(path)
+        full = self.window._loader.cached_pixmap(path)
+        preview = None if full is not None else self.window._loader.cached_preview(path)
+        if size is None and full is None:
+            # 极端兜底：无法快速读取尺寸时退回同步加载，保证仍能看图
+            ok, msg = self.canvas.load_image(path)
+            if not ok:
+                self.set_empty(msg)
+                return
+            if state is not None:
+                self.canvas.apply_view_state(state)
+        else:
+            self.canvas.begin_load(path, size, preview, full, state)
+            if full is None:
+                self.window._loader.request(path, want_preview=(preview is None))
+        self.window.update_loader_protection()
         self._update_header()
         self.canvas.viewport().update()
         self.window.refresh_status()
 
     def set_empty(self, msg=""):
-        self.canvas.load_image("")
-        self.canvas._image_size = (0, 0)
+        # 先清空路径再清画布，避免 clear_image 触发的状态刷新短暂显示“旧图名 + 空分辨率”
         self.image_path = None
+        self.canvas.clear_image()
         self.annotations = []
         self.undo_stack = []
         self.redo_stack = []
         self.select_rect = None
         self._set_header_text(self._side_name() + "  无图")
+        self.window.update_loader_protection()
         self.window.refresh_status()
         if msg:
             self.window.statusBar().showMessage(msg, 8000)
 
     def set_no_comparison(self):
         """双图模式下另一侧无比较图时的占位。"""
-        self.canvas.load_image("")
-        self.canvas._image_size = (0, 0)
         self.image_path = None
+        self.canvas.clear_image()
         self._set_header_text(self._side_name() + "  无比较图")
+        self.window.update_loader_protection()
         self.window.refresh_status()
 
     def _side_name(self):
@@ -674,6 +947,14 @@ class ImageViewerWindow(QMainWindow):
         if self._layout_mode not in (viewer_config.LAYOUT_SINGLE, viewer_config.LAYOUT_DUAL):
             self._layout_mode = viewer_config.DEFAULT_LAYOUT_MODE
 
+        # 锁定视图：切换图片/面板时保持缩放区域，直到用户再次点按；开关持久化
+        lock_cfg = self._cmd.get("lock_view")
+        if lock_cfg is None:
+            lock_cfg = viewer_config.get_lock_view()
+        self._lock_view = bool(lock_cfg)
+        self._locked_state = None
+        self._prefetch_targets = None
+
         # 全局（两侧共享）工具/颜色状态
         self._tool = TOOL_RECT
         self._color = "#ef4444"
@@ -683,6 +964,12 @@ class ImageViewerWindow(QMainWindow):
         # 面板：0=左（主），1=右（比较）
         self.panels = [ImagePanel(self, 0), ImagePanel(self, 1)]
         self.active_side = 0
+
+        # 大图异步解码 / 缓存 / 预取（GUI 线程只做显示，避免切换 8K 图时卡顿）
+        self._loader = ImageLoader(self)
+        self._loader.preview_ready.connect(self._on_preview_ready)
+        self._loader.image_ready.connect(self._on_image_ready)
+        self._loader.load_failed.connect(self._on_image_failed)
 
         # 应用图标 + 视觉样式
         self.setWindowIcon(branding.make_app_icon())
@@ -727,6 +1014,13 @@ class ImageViewerWindow(QMainWindow):
     def _apply_layout_mode(self):
         dual = (self._layout_mode == viewer_config.LAYOUT_DUAL)
         self.panels[1].container.setVisible(dual)
+        # 立即应用布局，确保随后套用锁定视图时两侧画布已经拿到正确的视口尺寸
+        try:
+            cw = self.centralWidget()
+            if cw is not None and cw.layout() is not None:
+                cw.layout().activate()
+        except Exception:
+            pass
         if hasattr(self, "act_dual"):
             self.act_dual.blockSignals(True)
             self.act_dual.setChecked(dual)
@@ -736,6 +1030,8 @@ class ImageViewerWindow(QMainWindow):
         if mode not in (viewer_config.LAYOUT_SINGLE, viewer_config.LAYOUT_DUAL):
             mode = viewer_config.DEFAULT_LAYOUT_MODE
         changed = (mode != self._layout_mode)
+        # 在改变分栏几何前先记住当前视图，否则视口变窄/变宽后再采集会偏移
+        self._capture_active_view()
         self._layout_mode = mode
         self._apply_layout_mode()
         if persist:
@@ -743,8 +1039,10 @@ class ImageViewerWindow(QMainWindow):
                 viewer_config.save_layout_mode(mode)
             except Exception:
                 pass
-        # 重新同步两侧内容（单图只显示左侧）
-        self._reload_panels(self.panels[0].index if self.panels[0].image_path else self._current)
+        # 重新同步两侧内容（单图只显示左侧）；视图使用上面已采集的状态
+        self._reload_panels(
+            self.panels[0].index if self.panels[0].image_path else self._current,
+            capture=False)
         if changed:
             self.window_status_hint()
 
@@ -754,11 +1052,81 @@ class ImageViewerWindow(QMainWindow):
     def active_panel(self):
         return self.panels[self.active_side]
 
+    # ── 锁定视图状态 ──
+    def state_for_panel(self, panel):
+        """返回该面板本次加载应套用的视图；锁定时以活动面板的实时视图为准。"""
+        if not self._lock_view:
+            return None
+        if panel.side == self.active_side and panel.canvas.can_load():
+            st = panel.canvas.capture_view_state()
+            if st is not None and (getattr(panel.canvas, "_view_dirty", True)
+                                   or self._locked_state is None):
+                # 只有用户手动调整过视图才更新锁定状态；程序套用后即使被滚动范围夹紧，
+                # 也保留原始逻辑视图，避免在宽高比切换后逐次漂移。
+                self._locked_state = st
+                panel.canvas._view_dirty = False
+        return self._locked_state
+
+    def _capture_active_view(self):
+        """把活动面板当前视图记为锁定状态（切换图片/面板/图片集前调用）。"""
+        if not self._lock_view:
+            return
+        p = self.active_panel()
+        if p.canvas.can_load():
+            st = p.canvas.capture_view_state()
+            if st is not None and (getattr(p.canvas, "_view_dirty", True)
+                                   or self._locked_state is None):
+                self._locked_state = st
+                p.canvas._view_dirty = False
+
+    def update_loader_protection(self):
+        if not hasattr(self, "_loader"):
+            return
+        paths = [p.image_path for p in self.panels if p.image_path]
+        self._loader.set_protected(*paths)
+        self._loader.set_wanted(*paths)
+
+    def _on_lock_toggled(self, checked):
+        self._lock_view = bool(checked)
+        try:
+            viewer_config.save_lock_view(self._lock_view)
+        except Exception:
+            pass
+        if self._lock_view:
+            self._capture_active_view()
+            self.statusBar().showMessage(
+                "🔒 视图已锁定：切换图片/面板会保持当前缩放区域，直到再次点按解锁。", 6000)
+        else:
+            self._locked_state = None
+            self.statusBar().showMessage(
+                "视图锁定已关闭：切换图片将恢复为适应窗口。", 4000)
+        self._update_lock_status()
+
+    def _update_lock_status(self):
+        if hasattr(self, "status_lock"):
+            if self._lock_view:
+                self.status_lock.setText("🔒 视图已锁定")
+                self.status_lock.setStyleSheet(
+                    "color:#fbbf24;font-weight:700;padding-right:12px;")
+            else:
+                self.status_lock.setText("视图未锁定")
+                self.status_lock.setStyleSheet(
+                    "color:#6b7280;padding-right:12px;")
+        if hasattr(self, "act_lock"):
+            self.act_lock.blockSignals(True)
+            self.act_lock.setChecked(self._lock_view)
+            self.act_lock.blockSignals(False)
+
     def set_active_panel(self, side, force=False):
         if side not in (0, 1):
             return
         if not force and side == self.active_side:
             return
+        target_state = None
+        if not force and self._lock_view:
+            # 点击另一侧时，把原活动面板的视图复制过去（只同步这一次）
+            self._capture_active_view()
+            target_state = self._locked_state
         self.active_side = side
         for p in self.panels:
             p.set_active_style(p.side == side)
@@ -767,7 +1135,11 @@ class ImageViewerWindow(QMainWindow):
         p = self.panels[side]
         if not force and not p.canvas.is_capture_mode():
             p.canvas.set_mode("select" if self._tool == "select" else "draw")
+        if target_state is not None and p.canvas.can_load():
+            p.canvas.apply_view_state(target_state)
+        self.update_loader_protection()
         self.refresh_status()
+        self._schedule_prefetch()
 
     def window_status_hint(self):
         if self._layout_mode == viewer_config.LAYOUT_DUAL:
@@ -777,11 +1149,15 @@ class ImageViewerWindow(QMainWindow):
             self.statusBar().showMessage("单图模式。", 3000)
 
     # ── 重新加载两侧内容 ──
-    def _reload_panels(self, base_index):
+    def _reload_panels(self, base_index, capture=True):
+        # 换图片集/换布局前先记住当前视图，锁定模式下新图集继续保持该视图
+        if capture:
+            self._capture_active_view()
         imgs = self._images
         if not imgs:
             self.panels[0].set_empty("")
             self.panels[1].set_empty("")
+            self._prefetch_targets = None
             self.update_title()
             self.refresh_status()
             return
@@ -790,11 +1166,13 @@ class ImageViewerWindow(QMainWindow):
         except (TypeError, ValueError):
             base = 0
         base = max(0, min(base, len(imgs) - 1))
-        self.panels[0].load_index(base)
+        # 本次重载统一使用同一份锁定状态，避免两侧分别采集导致偏移
+        state = self._locked_state if self._lock_view else None
+        self.panels[0].load_index(base, view_state=state)
         if self._layout_mode == viewer_config.LAYOUT_DUAL:
             if len(imgs) >= 2:
                 nxt = base + 1 if base + 1 < len(imgs) else base - 1
-                self.panels[1].load_index(max(0, nxt))
+                self.panels[1].load_index(max(0, nxt), view_state=state)
             else:
                 self.panels[1].set_no_comparison()
         else:
@@ -802,6 +1180,47 @@ class ImageViewerWindow(QMainWindow):
         self._current = self.panels[0].index
         self.update_title()
         self.refresh_status()
+        self._schedule_prefetch()
+
+    # ── 大图异步加载回调 / 预取 ──
+    def _on_preview_ready(self, path):
+        pm = self._loader.cached_preview(path)
+        if pm is None:
+            return
+        for p in self.panels:
+            if p.image_path == path:
+                p.canvas.set_preview_pixmap(path, pm)
+
+    def _on_image_ready(self, path):
+        pm = self._loader.cached_pixmap(path)
+        if pm is None:
+            return
+        for p in self.panels:
+            if p.image_path == path:
+                p.canvas.set_full_pixmap(path, pm)
+        self.update_loader_protection()
+
+    def _on_image_failed(self, path, err):
+        for p in self.panels:
+            if p.image_path == path and not p.canvas.is_full_resolution():
+                p.set_empty(err or "无法解码图片")
+        if self.active_panel().image_path == path:
+            self.statusBar().showMessage(err or "无法解码图片", 6000)
+
+    def _schedule_prefetch(self):
+        """预取活动面板的前后各一张，正常顺序翻图时直接命中缓存。"""
+        targets = []
+        if self._images:
+            p = self.active_panel()
+            if p.image_path:
+                for d in (-1, 1):
+                    j = p.index + d
+                    if 0 <= j < len(self._images):
+                        targets.append(self._images[j])
+        if targets == self._prefetch_targets:
+            return
+        self._prefetch_targets = targets
+        self._loader.prefetch(targets)
 
     # ── 快捷键 ──
     def _action_map(self):
@@ -924,6 +1343,17 @@ class ImageViewerWindow(QMainWindow):
 
         tb.addSeparator()
 
+        # 锁定视图：切换图片 / 面板时保持当前缩放区域（再次点按解锁）
+        self.act_lock = QAction("🔒 锁定视图", self)
+        self.act_lock.setToolTip(
+            "锁定视图：切换图片/面板时保持当前缩放区域与缩放倍数；再次点按解除")
+        self.act_lock.setCheckable(True)
+        self.act_lock.setChecked(self._lock_view)
+        self.act_lock.toggled.connect(self._on_lock_toggled)
+        tb.addAction(self.act_lock)
+
+        tb.addSeparator()
+
         # 单图 / 双图并排切换
         self.act_dual = QAction("双图", self)
         self.act_dual.setToolTip("单图 / 双图并排（左右独立缩放、标注、截图）")
@@ -1017,6 +1447,7 @@ class ImageViewerWindow(QMainWindow):
         self.status_index = QLabel("— / —")
         self.status_res = QLabel("—")
         self.status_zoom_lbl = QLabel("—")
+        self.status_lock = QLabel("")
         self.status_names = QLabel("")
         # 分辨率标签用淡色强调
         self.status_res.setStyleSheet("color:#9aa4f2;")
@@ -1026,9 +1457,11 @@ class ImageViewerWindow(QMainWindow):
         self._brand_lbl.setStyleSheet("color:#6b7280;padding:0 8px;")
         status.addWidget(self._brand_lbl, 0)
         status.addWidget(self.status_names, 1)
+        status.addPermanentWidget(self.status_lock)
         status.addPermanentWidget(self.status_index)
         status.addPermanentWidget(self.status_res)
         status.addPermanentWidget(self.status_zoom_lbl)
+        self._update_lock_status()
 
     def _set_topmost(self, on):
         flags = self.windowFlags()
@@ -1055,6 +1488,7 @@ class ImageViewerWindow(QMainWindow):
         new = p.index + delta
         if 0 <= new < len(self._images):
             p.load_index(new)
+            self._schedule_prefetch()
 
     def zoom_in(self):
         self.active_panel().canvas.zoom_in()
@@ -1063,7 +1497,7 @@ class ImageViewerWindow(QMainWindow):
         self.active_panel().canvas.zoom_out()
 
     def fit_active(self):
-        self.active_panel().canvas.fit_to_window()
+        self.active_panel().canvas.mark_user_fit()
 
     def set100_active(self):
         self.active_panel().canvas.set_100()
@@ -1072,6 +1506,8 @@ class ImageViewerWindow(QMainWindow):
     def set_images(self, images, current_index=0):
         new_images = list(images or [])
         new_set = set(new_images)
+        # 锁定视图时，换图片集也继续保持当前缩放区域
+        self._capture_active_view()
         # 先保存当前图的标注，再丢弃不在新图集中的旧标注（避免内存无限增长）
         for p in self.panels:
             p.store_state()
@@ -1083,7 +1519,7 @@ class ImageViewerWindow(QMainWindow):
             if p.image_path and p.image_path not in new_set:
                 p.image_path = None
         self._images = new_images
-        self._reload_panels(int(current_index or 0))
+        self._reload_panels(int(current_index or 0), capture=False)
 
     def set_current_index(self, index):
         self._reload_panels(int(index))
@@ -1161,7 +1597,11 @@ class ImageViewerWindow(QMainWindow):
 
         if not panel.canvas.can_load():
             return
-        pm = panel.canvas._item.pixmap()   # 原始 pixmap（未缩放）
+        # 始终从全分辨率原图裁剪；若大图仍在异步加载，这里同步补齐，保证截图清晰正确
+        pm = panel.canvas.original_pixmap()
+        if pm is None or pm.isNull():
+            self.statusBar().showMessage("原图尚未加载完成，请稍后再试。", 6000)
+            return
         cropped, err = capture.crop_from_pixmap(pm, image_rect)
         if cropped is None:
             self.statusBar().showMessage(err or "裁剪失败。", 6000)
@@ -1399,6 +1839,10 @@ class ImageViewerWindow(QMainWindow):
 
     # ── 关闭：释放锁并请求应用退出，确保进程真正结束（不只是删锁文件）──
     def closeEvent(self, event):
+        try:
+            self._loader.shutdown()
+        except Exception:
+            pass
         try:
             protocol.release_lock()
         except Exception:

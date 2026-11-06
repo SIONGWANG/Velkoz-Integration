@@ -29,6 +29,9 @@ DEFAULT_SHORTCUTS = {
 # 平移方式默认：鼠标右键拖动
 DEFAULT_PAN_BUTTON = "right"
 
+# 视图锁定默认：关闭（用户开启后持久化，切换图片/面板时保持缩放区域）
+DEFAULT_LOCK_VIEW = False
+
 # 查看器模式：内置 Image Viewer / 系统默认查看器
 # 注意：此 viewer_mode 指“用哪个查看器打开”，与下面的 layout_mode（布局）不同。
 MODE_BUILTIN = "builtin"     # 使用本次新增的独立 Image Viewer
@@ -163,6 +166,7 @@ def get_viewer_settings():
         "pan_button": v.get("pan_button", DEFAULT_PAN_BUTTON),
         "viewer_mode": v.get("viewer_mode", DEFAULT_VIEWER_MODE),
         "layout_mode": layout_mode,
+        "lock_view": bool(v.get("lock_view", DEFAULT_LOCK_VIEW)),
     }
 
 
@@ -202,6 +206,23 @@ def save_layout_mode(mode):
 
 def get_layout_mode():
     return get_viewer_settings().get("layout_mode", DEFAULT_LAYOUT_MODE)
+
+
+def save_lock_view(enabled):
+    """保存视图锁定开关（切换图片/面板保持缩放区域），持久化到 settings.json。"""
+    all_data = _read_all()
+    if not isinstance(all_data, dict):
+        all_data = {}
+    v = all_data.get("image_viewer", {}) or {}
+    if not isinstance(v, dict):
+        v = {}
+    v["lock_view"] = bool(enabled)
+    all_data["image_viewer"] = v
+    _write_all(all_data)
+
+
+def get_lock_view():
+    return bool(get_viewer_settings().get("lock_view", DEFAULT_LOCK_VIEW))
 
 
 def save_shortcuts(shortcuts):
