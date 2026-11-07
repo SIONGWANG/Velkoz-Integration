@@ -19,6 +19,7 @@ from export_mixin import ExportMixin
 from zone_a import ZoneAMixin
 from zone_b import ZoneBMixin
 from zone_c import ZoneCMixin
+from ui.router import render_management_entry
 
 
 # ==========================================
@@ -101,6 +102,14 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
     def run(self):
         version = APP_VERSION
         st.set_page_config(layout="wide", page_title=f"{APP_NAME} V{version}")
+
+        # 1.25.x 管理平台页面；默认仍是正式质检，不改变旧布局
+        nav_page = st.session_state.get("nav_page", "acceptance")
+        if nav_page != "acceptance":
+            from ui.router import render_management_page
+
+            render_management_page(nav_page)
+            return
 
         # 轮询独立图片查看器回传的截图（自动拾取上传）
         try:
@@ -206,6 +215,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 st.divider()
                 with st.expander("⚙️ 更多设置", expanded=False):
                     self._render_settings_panel(show_datasource=True)
+                    render_management_entry(key_prefix="mgmt_a")
 
                 # ── 分类管理 ──
                 st.divider()
@@ -232,6 +242,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
 
                 with st.expander("⚙️ 更多设置", expanded=False):
                     self._render_settings_panel(key_prefix="cs_", show_operator=True)
+                    render_management_entry(key_prefix="mgmt_cs")
         else:
             group = current_group
             self.sync_state_from_history(group['id'])
