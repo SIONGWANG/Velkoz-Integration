@@ -57,11 +57,11 @@ def initialise(base: Path):
 
 
 class TestBatchConfirm(unittest.TestCase):
-    def test_schema_version_is_2(self):
+    def test_schema_version_is_current(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = open_database(Path(tmp) / "management.db")
             try:
-                self.assertEqual(db.schema_version(), 2)
+                self.assertEqual(db.schema_version(), 3)
                 tables = {
                     row["name"]
                     for row in db.connect().execute(
