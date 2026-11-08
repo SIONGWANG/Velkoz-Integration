@@ -122,7 +122,8 @@ class TestDatabaseAndService(unittest.TestCase):
             db_path = Path(tmp) / "data" / "management.db"
             db = open_database(db_path)
             try:
-                self.assertEqual(db.schema_version(), 1)
+                # v1.25.1 新增 0002 迁移，schema 至少为 1，当前应为 2
+                self.assertGreaterEqual(db.schema_version(), 1)
                 ok, detail = db.integrity_check()
                 self.assertTrue(ok, detail)
                 tables = {

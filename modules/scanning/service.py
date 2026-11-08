@@ -81,11 +81,14 @@ class ScanService:
         return scan_root(root, ruleset, options=options, progress=progress, should_cancel=should_cancel)
 
     def save_result(self, result: ScanResult, *, operator: str = "", rule_set_id: str | None = None) -> str:
+        resolved_rule_set_id = rule_set_id or result.ruleset_id
+        rule_version_id = self._resolve_rule_version_id(resolved_rule_set_id)
         run_id = save_scan_run(
             self.db,
             result,
             operator=operator,
-            rule_set_id=rule_set_id,
+            rule_set_id=resolved_rule_set_id,
+            rule_version_id=rule_version_id,
         )
         AuditLogger(self.db).log(
             module="scanning",
@@ -93,10 +96,19 @@ class ScanService:
             operator=operator,
             target_path=result.root,
             run_id=run_id,
-            detail=summarize(result),
+            detail={**summarize(result), "rule_set_id": resolved_rule_set_id, "rule_version_id": rule_version_id},
             duration_ms=result.duration_ms,
         )
         return run_id
+
+    def _resolve_rule_version_id(self, rule_set_id: str | None) -> str | None:
+        if not rule_set_id:
+            return None
+        row = self.db.connect().execute(
+            "SELECT active_version_id FROM scan_rule_sets WHERE id = ?",
+            (rule_set_id,),
+        ).fetchone()
+        return row["active_version_id"] if row else None
 
     def recent_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         return recent_scan_runs(self.db, limit)

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import os
 import re
 import uuid
@@ -121,6 +122,7 @@ class ScanResult:
     duration_ms: int = 0
     truncated: bool = False
     options: ScanOptions = field(default_factory=ScanOptions)
+    ruleset_json: str = ""
 
     @property
     def stats(self) -> dict[str, Any]:
@@ -149,6 +151,7 @@ class ScanResult:
             "root": self.root,
             "ruleset_id": self.ruleset_id,
             "ruleset_name": self.ruleset_name,
+            "ruleset": json.loads(self.ruleset_json) if self.ruleset_json else None,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "status": self.status,
@@ -278,6 +281,7 @@ def scan_root(
         ruleset_name=ruleset.name,
         started_at=now_iso(),
         options=opts,
+        ruleset_json=ruleset.to_json(),
     )
 
     if not os.path.isdir(root_path):

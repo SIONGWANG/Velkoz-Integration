@@ -118,10 +118,15 @@ def save_scan_run(
     """保存扫描预览记录，不确认批次、不写 data_groups。"""
     conn = db.connect()
     run_id = _new_id("run")
+    try:
+        ruleset_config = json.loads(result.ruleset_json) if result.ruleset_json else None
+    except ValueError:
+        ruleset_config = None
     summary = {
         "stats": result.stats,
         "ruleset_id": result.ruleset_id,
         "ruleset_name": result.ruleset_name,
+        "ruleset": ruleset_config,
     }
     conn.execute(
         """
@@ -152,8 +157,8 @@ def save_scan_run(
             """
             INSERT INTO scan_candidates(
                 id, run_id, batch_path, batch_name, identity_json, status, confidence,
-                reason_json, group_count, file_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reason_json, group_count, file_count, group_paths_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _new_id("cand"),
@@ -169,6 +174,8 @@ def save_scan_run(
                 ),
                 candidate.group_count,
                 candidate.file_count,
+                json.dumps([group.path for group in candidate.groups], ensure_ascii=False),
+                now_iso(),
             ),
         )
 
