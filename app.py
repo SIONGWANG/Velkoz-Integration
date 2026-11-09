@@ -19,7 +19,6 @@ from export_mixin import ExportMixin
 from zone_a import ZoneAMixin
 from zone_b import ZoneBMixin
 from zone_c import ZoneCMixin
-from ui.router import render_management_entry
 
 
 # ==========================================
@@ -164,6 +163,15 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
         </script>
         """, height=0, width=0)
         
+        # ── 管理中心入口（正式质检）──
+        top_left, top_right = st.columns([9, 1])
+        with top_left:
+            st.caption(f"审视之眼 Pro V{version} · 正式质检")
+        with top_right:
+            if st.button("🧭 管理中心", use_container_width=True, key="open_management_center"):
+                st.session_state["nav_page"] = "batch_overview"
+                st.rerun()
+
         remain = (100 - b_width_percent) / 2
         col_a, col_b, col_c = st.columns([remain, b_width_percent, remain])
 
@@ -215,7 +223,6 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
                 st.divider()
                 with st.expander("⚙️ 更多设置", expanded=False):
                     self._render_settings_panel(show_datasource=True)
-                    render_management_entry(key_prefix="mgmt_a")
 
                 # ── 分类管理 ──
                 st.divider()
@@ -242,7 +249,6 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
 
                 with st.expander("⚙️ 更多设置", expanded=False):
                     self._render_settings_panel(key_prefix="cs_", show_operator=True)
-                    render_management_entry(key_prefix="mgmt_cs")
         else:
             group = current_group
             self.sync_state_from_history(group['id'])

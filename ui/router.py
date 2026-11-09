@@ -1,10 +1,26 @@
-"""1.25.x 管理平台页面路由。
+"""1.25.x 管理平台页面路由与导航。
 
-默认页仍是正式质检；只有用户从“更多设置”主动进入管理页面时才切换。
+管理平台已从“更多设置”中的入口独立出来，默认进入批次总览；
+默认正式质检三栏布局不变。所有管理页面只读或只写管理数据库，
+不修改源图片/TXT/CSV。
 """
 from __future__ import annotations
 
 import streamlit as st
+
+PAGES: tuple[tuple[str, str], ...] = (
+    ("batch_overview", "📦 批次总览"),
+    ("workbench", "🏠 工作台"),
+    ("team_category", "👥 团队与类别"),
+    ("scan", "📂 数据扫描"),
+    ("batches", "🧩 候选确认"),
+    ("format", "🔎 格式检查"),
+    ("precheck", "🌐 翻译预审"),
+    ("record_import", "📥 记录导入"),
+    ("settings", "⚙️ 管理设置"),
+)
+
+PAGE_KEYS = {key for key, _ in PAGES} | {"batch_detail"}
 
 
 def go(page: str) -> None:
@@ -12,33 +28,66 @@ def go(page: str) -> None:
     st.rerun()
 
 
-def render_management_entry(key_prefix: str = "mgmt") -> None:
-    """放在旧界面“更多设置”里的入口，不改变三栏布局。"""
-    st.markdown("**1.25 管理平台（预览）**")
-    st.caption(
-        "只读扫描、候选确认、格式检查、翻译预审、记录导入与规则诊断；"
-        "不修改源图片/TXT/CSV，翻译仅在确认后写英文 TXT。"
-    )
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    if col1.button("📂 数据扫描", key=f"{key_prefix}_open_scan", use_container_width=True):
-        go("scan")
-    if col2.button("🧩 候选确认", key=f"{key_prefix}_open_batches", use_container_width=True):
-        go("batches")
-    if col3.button("🔎 格式检查", key=f"{key_prefix}_open_format", use_container_width=True):
-        go("format")
-    if col4.button("🌐 翻译预审", key=f"{key_prefix}_open_precheck", use_container_width=True):
-        go("precheck")
-    if col5.button("📥 记录导入", key=f"{key_prefix}_open_record_import", use_container_width=True):
-        go("record_import")
-    if col6.button("⚙️ 管理设置", key=f"{key_prefix}_open_settings", use_container_width=True):
-        go("settings")
+def _render_sidebar(page: str) -> None:
+    with st.sidebar:
+        st.markdown("## 🧭 管理中心")
+        st.caption("按批次、团队和类别查看真实数据。")
+        for key, label in PAGES:
+            active = key == page
+            if st.button(
+                label,
+                key=f"mgmt_nav_{key}",
+                use_container_width=True,
+                type="primary" if active else "secondary",
+            ):
+                go(key)
+        st.divider()
+        if st.button("← 返回正式质检", use_container_width=True, key="mgmt_nav_back"):
+            go("acceptance")
 
 
 def render_management_page(page: str) -> None:
-    if st.button("← 返回正式质检", key="nav_back_acceptance"):
-        go("acceptance")
+    if page not in PAGE_KEYS:
+        page = "batch_overview"
+    _render_sidebar(page)
 
-    if page == "scan":
+    if page == "batch_overview":
+        from ui.pages import management_home
+        from modules.batch_management.service import BatchService
+
+        service = BatchService()
+        try:
+            management_home.render_batch_overview(service)
+        finally:
+            service.close()
+    elif page == "workbench":
+        from ui.pages import management_home
+        from modules.batch_management.service import BatchService
+
+        service = BatchService()
+        try:
+            management_home.render_workbench(service)
+        finally:
+            service.close()
+    elif page == "team_category":
+        from ui.pages import management_home
+        from modules.batch_management.service import BatchService
+
+        service = BatchService()
+        try:
+            management_home.render_team_category(service)
+        finally:
+            service.close()
+    elif page == "batch_detail":
+        from ui.pages import management_home
+        from modules.batch_management.service import BatchService
+
+        service = BatchService()
+        try:
+            management_home.render_batch_detail(service)
+        finally:
+            service.close()
+    elif page == "scan":
         from ui.pages import scan
 
         scan.render()
@@ -64,5 +113,3 @@ def render_management_page(page: str) -> None:
         settings.render()
     else:
         st.warning(f"未知页面：{page}")
-        if st.button("返回正式质检"):
-            go("acceptance")

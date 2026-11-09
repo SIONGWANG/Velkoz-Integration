@@ -23,6 +23,8 @@ VALID_CANDIDATE_STATUS = {
     "rescan",
 }
 
+VALID_BATCH_STATUS = {"confirmed", "paused", "completed", "archived"}
+
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4()}"
@@ -133,6 +135,43 @@ class BatchService:
             (batch_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def update_batch_status(
+        self,
+        batch_id: str,
+        status: str,
+        *,
+        operator: str = "",
+        reason: str = "",
+    ) -> None:
+        """更新批次处理状态并写入状态日志与操作日志；不改动任务或源文件。"""
+        if status not in VALID_BATCH_STATUS:
+            raise ValueError(f"不支持的批次状态：{status}")
+        conn = self.db.connect()
+        row = conn.execute("SELECT status FROM batches WHERE id = ?", (batch_id,)).fetchone()
+        if row is None:
+            raise ValueError("批次不存在")
+        previous = row["status"] or ""
+        if previous == status:
+            return
+        now = now_iso()
+        conn.execute(
+            "UPDATE batches SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, batch_id),
+        )
+        conn.execute(
+            "INSERT INTO batch_status_log(id, batch_id, from_status, to_status, operator, reason, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (_new_id("bsl"), batch_id, previous, status, operator, reason, now),
+        )
+        conn.commit()
+        AuditLogger(self.db).log(
+            module="batch_management",
+            action="update_batch_status",
+            operator=operator,
+            batch_id=batch_id,
+            detail={"from": previous, "to": status, "reason": reason},
+        )
 
     # ── 确认 / 忽略 / 修改 ────────────────────────────────
 
