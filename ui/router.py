@@ -17,6 +17,7 @@ PAGES: tuple[tuple[str, str], ...] = (
     ("format", "🔎 格式检查"),
     ("precheck", "🌐 翻译预审"),
     ("record_import", "📥 记录导入"),
+    ("archive", "🗄️ 合格归档"),
     ("settings", "⚙️ 管理设置"),
 )
 
@@ -107,6 +108,10 @@ def render_management_page(page: str) -> None:
         from ui.pages import record_import
 
         record_import.render()
+    elif page == "archive":
+        from ui.pages import archive
+
+        archive.render()
     elif page == "settings":
         from ui.pages import settings
 

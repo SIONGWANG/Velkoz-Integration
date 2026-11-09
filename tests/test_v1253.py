@@ -148,11 +148,11 @@ class PrecheckCase(unittest.TestCase):
 
 
 class TestSchema(unittest.TestCase):
-    def test_schema_version_is_5_and_tables_exist(self):
+    def test_schema_version_is_6_and_tables_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = open_database(Path(tmp) / "management.db")
             try:
-                self.assertEqual(db.schema_version(), 5)
+                self.assertEqual(db.schema_version(), 6)
                 tables = {
                     row["name"]
                     for row in db.connect().execute(
