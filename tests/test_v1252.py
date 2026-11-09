@@ -79,7 +79,7 @@ class TestSchemaAndRules(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = open_database(Path(tmp) / "management.db")
             try:
-                self.assertEqual(db.schema_version(), 4)
+                self.assertEqual(db.schema_version(), 5)
                 tables = {
                     row["name"]
                     for row in db.connect().execute(

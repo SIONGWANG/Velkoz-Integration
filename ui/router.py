@@ -16,10 +16,10 @@ def render_management_entry(key_prefix: str = "mgmt") -> None:
     """放在旧界面“更多设置”里的入口，不改变三栏布局。"""
     st.markdown("**1.25 管理平台（预览）**")
     st.caption(
-        "只读扫描、候选确认、格式检查、翻译预审与规则诊断；"
+        "只读扫描、候选确认、格式检查、翻译预审、记录导入与规则诊断；"
         "不修改源图片/TXT/CSV，翻译仅在确认后写英文 TXT。"
     )
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     if col1.button("📂 数据扫描", key=f"{key_prefix}_open_scan", use_container_width=True):
         go("scan")
     if col2.button("🧩 候选确认", key=f"{key_prefix}_open_batches", use_container_width=True):
@@ -28,7 +28,9 @@ def render_management_entry(key_prefix: str = "mgmt") -> None:
         go("format")
     if col4.button("🌐 翻译预审", key=f"{key_prefix}_open_precheck", use_container_width=True):
         go("precheck")
-    if col5.button("⚙️ 管理设置", key=f"{key_prefix}_open_settings", use_container_width=True):
+    if col5.button("📥 记录导入", key=f"{key_prefix}_open_record_import", use_container_width=True):
+        go("record_import")
+    if col6.button("⚙️ 管理设置", key=f"{key_prefix}_open_settings", use_container_width=True):
         go("settings")
 
 
@@ -52,6 +54,10 @@ def render_management_page(page: str) -> None:
         from ui.pages import precheck
 
         precheck.render()
+    elif page == "record_import":
+        from ui.pages import record_import
+
+        record_import.render()
     elif page == "settings":
         from ui.pages import settings
 
