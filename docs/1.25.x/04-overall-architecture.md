@@ -205,7 +205,7 @@ modules/
 │   ├── dedup.py            # 文件/行指纹
 │   └── service.py
 ├── archive/
-├── statistics/
+├── stats/
 ├── audit_log/
 └── ui/
     ├── router.py
@@ -226,7 +226,7 @@ modules/
 | `precheck` | 原生翻译/语法/一致性检查/费用/报告 + 历史报告只读导入 | v1.25.3 |
 | `record_import` | 其他验收员记录只读导入 | v1.25.4 |
 | `archive` | 合格数据只复制归档 | v1.25.6 |
-| `statistics` | 统计/日报 | v1.25.7 |
+| `stats` | 统计/日报/可追溯明细/Excel | v1.25.7 |
 | `database` | SQLite/迁移/备份 | v1.25.0 |
 | `config` | 配置/密钥 | v1.25.0 |
 | `audit_log` | 结构化操作日志 | v1.25.0 |

@@ -478,6 +478,8 @@ preview → running → completed
 - 合格/不合格 = 最新事件结果；
 - 未验收 = 总数 - 已验收。
 
+> v1.25.7 实现说明：当前管理数据库没有独立的 `acceptance_events` 表，验收事件以 `imported_records.result` 为准（导入记录即可追溯的验收事件）；批次级数字仍读取 `batches.qualified_count/rejected_count/remaining_count` 快照。
+
 ### 9.2 人员统计
 
 - 按 `operator` + 日期 + 批次；

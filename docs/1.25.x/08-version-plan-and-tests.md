@@ -344,6 +344,23 @@ ui/pages/settings.py
 4. 导出列稳定；
 5. 大数据量分页/流式。
 
+### 9.3 实现要点（v1.25.7）
+
+- 模块：`modules/stats/models.py`、`modules/stats/service.py`、`ui/pages/stats.py`。
+- 路由：管理中心新增 `("stats", "📊 数据统计")`，默认入口仍为批次总览。
+- 口径来源：
+  - 验收/合格/不合格 → `imported_records.result`；
+  - 批次快照 → `batches.qualified_count/rejected_count/remaining_count`；
+  - 格式 → 批次最近一次 `format_check_runs`，错误类型 → `format_check_issues.code/severity`；
+  - 翻译 → 批次最近一次 `translation_jobs` 及其 `translation_items`；
+  - 归档 → `archive_jobs` + `archive_items.status in ('verified','skipped')`；
+  - 标签 → `imported_records.tags_raw` 原文拆分。
+- 缓存：`stats_daily` 仅存按日聚合值，可按源表重建；唯一索引 `(date, COALESCE(batch_id,''), COALESCE(operator,''))`。
+- 明细：验收与格式错误均提供计数、分页查询和批量迭代；导出最多 5000 条并提示剩余量。
+- 只读：统计查询不写业务源表；源图片/TXT/CSV 不读取、不修改。导出写入管理目录 `reports/stats`。
+- 测试：`tests/test_v1257.py` 覆盖 schema、批次/人员/错误/标签、日报、缓存幂等、分页、筛选、只读、Excel 工作表和列稳定性。
+- 验证：v1.25.0–v1.25.7 共 136 项测试通过；12 个管理页面与 `app.py` AppTest 均为 0 异常；统计页“重建缓存”“生成 Excel”交互为 0 异常。
+
 ---
 
 ## 10. 测试体系

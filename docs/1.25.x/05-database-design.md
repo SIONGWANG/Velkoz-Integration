@@ -622,19 +622,27 @@ operation_logs（独立，关联任意 run/job）
 
 | 列 | 类型 | 说明 |
 |---|---|---|
+| id | TEXT PK | |
 | date | TEXT | |
 | batch_id | TEXT | 可空 |
 | operator | TEXT | 可空 |
-| new_groups | INTEGER | |
+| new_batches | INTEGER | 当日新增批次 |
+| new_groups | INTEGER | 当日新增数据组 |
 | format_checked | INTEGER | |
 | format_failed | INTEGER | |
+| format_warnings | INTEGER | |
 | translated | INTEGER | |
 | translation_failed | INTEGER | |
 | accepted | INTEGER | |
 | qualified | INTEGER | |
 | rejected | INTEGER | |
+| archived | INTEGER | |
 | pending | INTEGER | |
-| UNIQUE(date, batch_id, operator) | | |
+| built_at | TEXT | 缓存重建时间 |
+| source | TEXT | live/rebuild |
+| UNIQUE(date, COALESCE(batch_id,''), COALESCE(operator,'')) | | 作用域唯一 |
+
+> v1.25.7 迁移 `0007_stats.sql`。缓存只保存按日聚合值，可按源表重建；不保存图片/TXT/CSV 原文。
 
 #### `operation_logs`
 
