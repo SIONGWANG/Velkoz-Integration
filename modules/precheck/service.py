@@ -533,6 +533,8 @@ class PrecheckService:
                 "cancelled": cancelled,
             },
         )
+        if request.batch_id:
+            self._sync_batch_translation_status(request.batch_id, status, summary)
         precheck_repo.insert_usage(
             self.db,
             usage_row(
@@ -571,6 +573,26 @@ class PrecheckService:
             cancelled=cancelled,
             summary=summary,
         )
+
+    def _sync_batch_translation_status(
+        self, batch_id: str, status: str, summary: dict[str, Any]
+    ) -> None:
+        """把最近一次翻译结果同步到批次索引；真实明细仍以 translation_jobs/items 为准。"""
+        failed = int(summary.get("failed", 0) or 0)
+        translated = int(summary.get("translated", 0) or 0)
+        if status in {"cancelled", "partial"} or failed > 0:
+            value = "partial" if translated > 0 else "failed"
+        elif status in {"failed", "fail"}:
+            value = "failed"
+        elif translated > 0:
+            value = "completed"
+        else:
+            value = "in_progress"
+        self.db.connect().execute(
+            "UPDATE batches SET translation_status = ?, updated_at = ? WHERE id = ?",
+            (value, now_iso(), batch_id),
+        )
+        self.db.connect().commit()
 
     def _translate_one(
         self,

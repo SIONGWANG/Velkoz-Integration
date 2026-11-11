@@ -75,11 +75,11 @@ def codes(result) -> list[str]:
 
 
 class TestSchemaAndRules(unittest.TestCase):
-    def test_schema_version_is_7(self):
+    def test_schema_version_is_8(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = open_database(Path(tmp) / "management.db")
             try:
-                self.assertEqual(db.schema_version(), 7)
+                self.assertEqual(db.schema_version(), 8)
                 tables = {
                     row["name"]
                     for row in db.connect().execute(

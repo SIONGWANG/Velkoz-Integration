@@ -55,7 +55,8 @@ class BatchService:
     def list_candidates(self, run_id: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
         conn = self.db.connect()
         sql = """
-            SELECT c.*, r.root_path, r.started_at AS run_started_at, r.rule_set_id, r.rule_version_id
+            SELECT c.*, r.root_path, r.started_at AS run_started_at, r.rule_set_id, r.rule_version_id,
+                   r.source_type, r.project_root_id, r.project_name
             FROM scan_candidates c
             JOIN scan_runs r ON r.id = c.run_id
         """
@@ -77,7 +78,8 @@ class BatchService:
         conn = self.db.connect()
         row = conn.execute(
             """
-            SELECT c.*, r.root_path, r.started_at AS run_started_at, r.rule_set_id, r.rule_version_id
+            SELECT c.*, r.root_path, r.started_at AS run_started_at, r.rule_set_id, r.rule_version_id,
+                   r.source_type, r.project_root_id, r.project_name
             FROM scan_candidates c
             JOIN scan_runs r ON r.id = c.run_id
             WHERE c.id = ?
@@ -214,6 +216,10 @@ class BatchService:
                 batch_name,
                 operator,
                 source="scan",
+                source_type=candidate.get("source_type") or "legacy",
+                source_root_id=candidate.get("project_root_id") or "",
+                source_root_path=candidate.get("root_path") or "",
+                project_name=candidate.get("project_name") or "",
             )
             self._insert_groups(batch_id, groups)
             conn.execute(
@@ -345,7 +351,18 @@ class BatchService:
         conn = self.db.connect()
         try:
             conn.execute("BEGIN")
-            batch_id = self._create_batch(primary, groups, identity, batch_name, operator, source="merge")
+            batch_id = self._create_batch(
+                primary,
+                groups,
+                identity,
+                batch_name,
+                operator,
+                source="merge",
+                source_type=primary.get("source_type") or "legacy",
+                source_root_id=primary.get("project_root_id") or "",
+                source_root_path=primary.get("root_path") or "",
+                project_name=primary.get("project_name") or "",
+            )
             self._insert_groups(batch_id, groups)
             for candidate in candidates:
                 conn.execute(
@@ -399,7 +416,18 @@ class BatchService:
         conn = self.db.connect()
         try:
             conn.execute("BEGIN")
-            batch_id = self._create_batch(candidate, selected_groups, identity, batch_name, operator, source="split")
+            batch_id = self._create_batch(
+                candidate,
+                selected_groups,
+                identity,
+                batch_name,
+                operator,
+                source="split",
+                source_type=candidate.get("source_type") or "legacy",
+                source_root_id=candidate.get("project_root_id") or "",
+                source_root_path=candidate.get("root_path") or "",
+                project_name=candidate.get("project_name") or "",
+            )
             self._insert_groups(batch_id, selected_groups)
             conn.execute(
                 """
@@ -552,19 +580,69 @@ class BatchService:
         operator: str,
         *,
         source: str,
+        source_type: str = "legacy",
+        source_root_id: str = "",
+        source_root_path: str = "",
+        project_name: str = "",
     ) -> str:
         conn = self.db.connect()
-        batch_id = _new_id("batch")
         now = now_iso()
+        batch_path = candidate.get("batch_path") or candidate.get("root_path") or ""
+        root_path = source_root_path or candidate.get("root_path") or ""
+        resolved_type = source_type if source_type in {"pending_acceptance", "final_acceptance"} else "legacy"
+        try:
+            relative_path = os.path.relpath(batch_path, root_path) if root_path else ""
+        except ValueError:
+            relative_path = ""
+        if relative_path == ".":
+            relative_path = ""
+        existing = conn.execute(
+            "SELECT id FROM batches WHERE source_type = ? AND lower(batch_path) = lower(?) LIMIT 1",
+            (resolved_type, batch_path),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE batches
+                SET name = COALESCE(NULLIF(name, ''), ?),
+                    category_l1 = COALESCE(NULLIF(category_l1, ''), ?),
+                    category_l2 = COALESCE(NULLIF(category_l2, ''), ?),
+                    submit_date = COALESCE(NULLIF(submit_date, ''), ?),
+                    data_root = ?, batch_path = ?, data_count = ?, identity_json = ?,
+                    source_root_id = ?, source_root_path = ?, relative_path = ?,
+                    project_name = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    batch_name,
+                    identity.get("category_l1", ""),
+                    identity.get("category_l2", ""),
+                    identity.get("date", ""),
+                    root_path,
+                    batch_path,
+                    len(groups),
+                    json.dumps(identity, ensure_ascii=False),
+                    source_root_id,
+                    root_path,
+                    relative_path,
+                    project_name,
+                    now,
+                    existing["id"],
+                ),
+            )
+            return str(existing["id"])
+
+        batch_id = _new_id("batch")
         display_id = self._next_display_id()
-        unique_name = self._unique_batch_name(batch_name, candidate.get("root_path") or candidate.get("batch_path") or "")
+        unique_name = self._unique_batch_name(batch_name, root_path or batch_path)
         conn.execute(
             """
             INSERT INTO batches(
                 id, display_id, name, category_l1, category_l2, submit_date, data_root, batch_path,
                 data_count, status, source, rule_set_id, rule_version_id, identity_json,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, source_type, source_root_id, source_root_path,
+                relative_path, parent_batch_id, project_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
             """,
             (
                 batch_id,
@@ -573,8 +651,8 @@ class BatchService:
                 identity.get("category_l1", ""),
                 identity.get("category_l2", ""),
                 identity.get("date") or today_str(),
-                candidate.get("root_path") or "",
-                candidate.get("batch_path") or "",
+                root_path,
+                batch_path,
                 len(groups),
                 source,
                 candidate.get("rule_set_id"),
@@ -582,6 +660,11 @@ class BatchService:
                 json.dumps(identity, ensure_ascii=False),
                 now,
                 now,
+                resolved_type,
+                source_root_id,
+                root_path,
+                relative_path,
+                project_name,
             ),
         )
         conn.execute(
@@ -623,6 +706,24 @@ class BatchService:
             ).fetchone()
             if existing:
                 group_id = existing["id"]
+                conn.execute(
+                    """
+                    UPDATE data_groups
+                    SET user_name = ?, image_count = ?, txt_count = ?, file_count = ?,
+                        fingerprint = ?, root_path = ?, last_seen_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        detail.get("user_name") or "未知",
+                        len(detail.get("images") or []),
+                        (1 if detail.get("txt_zh") else 0) + (1 if detail.get("txt_en") else 0),
+                        int(detail.get("file_count", 0) or 0),
+                        detail.get("fingerprint", ""),
+                        root_path,
+                        now,
+                        group_id,
+                    ),
+                )
             else:
                 group_id = _new_id("dg")
                 conn.execute(
@@ -667,11 +768,29 @@ class BatchService:
     def _insert_file(self, group_id: str, group_path: str, file_path: str, role: str) -> None:
         conn = self.db.connect()
         path = Path(file_path)
+        relative = os.path.relpath(str(path), group_path) if group_path else path.name
+        existing = conn.execute(
+            "SELECT id FROM data_group_files WHERE data_group_id = ? AND relative_path = ?",
+            (group_id, relative),
+        ).fetchone()
         try:
             st = path.stat()
             size, mtime_ns = st.st_size, st.st_mtime_ns
         except OSError:
             size, mtime_ns = None, None
+        if existing:
+            conn.execute(
+                "UPDATE data_group_files SET role = ?, file_name = ?, size = ?, mtime_ns = ?, ext = ? WHERE id = ?",
+                (
+                    role,
+                    path.name,
+                    size,
+                    mtime_ns,
+                    path.suffix.lower().lstrip("."),
+                    existing["id"],
+                ),
+            )
+            return
         conn.execute(
             """
             INSERT INTO data_group_files(id, data_group_id, role, file_name, relative_path, size, mtime_ns, ext, fingerprint)
@@ -682,7 +801,7 @@ class BatchService:
                 group_id,
                 role,
                 path.name,
-                os.path.relpath(str(path), group_path) if group_path else path.name,
+                relative,
                 size,
                 mtime_ns,
                 path.suffix.lower().lstrip("."),

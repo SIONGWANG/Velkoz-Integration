@@ -9,8 +9,8 @@ from __future__ import annotations
 import streamlit as st
 
 PAGES: tuple[tuple[str, str], ...] = (
+    ("workbench", "🏠 数据验收工作台"),
     ("batch_overview", "📦 批次总览"),
-    ("workbench", "🏠 工作台"),
     ("team_category", "👥 团队与类别"),
     ("scan", "📂 数据扫描"),
     ("batches", "🧩 候选确认"),
@@ -50,25 +50,28 @@ def _render_sidebar(page: str) -> None:
 
 def render_management_page(page: str) -> None:
     if page not in PAGE_KEYS:
-        page = "batch_overview"
+        page = "workbench"
     _render_sidebar(page)
 
-    if page == "batch_overview":
+    if page == "workbench":
+        from ui.pages import management_home
+        from modules.batch_management.service import BatchService
+        from modules.workspace.service import WorkspaceService
+
+        service = BatchService()
+        workspace = WorkspaceService()
+        try:
+            management_home.render_workbench(service, workspace)
+        finally:
+            workspace.close()
+            service.close()
+    elif page == "batch_overview":
         from ui.pages import management_home
         from modules.batch_management.service import BatchService
 
         service = BatchService()
         try:
             management_home.render_batch_overview(service)
-        finally:
-            service.close()
-    elif page == "workbench":
-        from ui.pages import management_home
-        from modules.batch_management.service import BatchService
-
-        service = BatchService()
-        try:
-            management_home.render_workbench(service)
         finally:
             service.close()
     elif page == "team_category":
@@ -83,11 +86,14 @@ def render_management_page(page: str) -> None:
     elif page == "batch_detail":
         from ui.pages import management_home
         from modules.batch_management.service import BatchService
+        from modules.workspace.service import WorkspaceService
 
         service = BatchService()
+        workspace = WorkspaceService()
         try:
-            management_home.render_batch_detail(service)
+            management_home.render_batch_detail(service, workspace)
         finally:
+            workspace.close()
             service.close()
     elif page == "scan":
         from ui.pages import scan

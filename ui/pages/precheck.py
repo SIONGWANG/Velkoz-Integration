@@ -11,6 +11,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -195,23 +196,82 @@ def _render_translate(service: PrecheckService) -> None:
     if not profiles:
         st.warning("还没有模型配置，请先到“模型与提示词”添加。")
         return
-    default_root = (
-        st.session_state.get("precheck_root") or st.session_state.get("root_path", "")
-    )
-    col_root, col_operator, col_profile = st.columns([3, 1, 2])
-    root = col_root.text_input("根目录", value=default_root, key="pc_root_input")
-    operator = col_operator.text_input(
-        "操作员", value=st.session_state.get("operator_name", ""), key="pc_operator"
-    )
-    active = service.active_profile_id()
-    profile_ids = list(profiles.keys())
-    profile_id = col_profile.selectbox(
-        "模型配置",
-        options=profile_ids,
-        index=profile_ids.index(active) if active in profile_ids else 0,
-        format_func=lambda key: profiles[key],
-        key="pc_profile",
-    )
+    context_batch: dict[str, Any] | None = None
+    context_id = str(st.session_state.get("pc_batch_id") or "")
+    if context_id:
+        row = service.db.connect().execute(
+            "SELECT id, display_id, name, batch_path, data_root FROM batches WHERE id = ?",
+            (context_id,),
+        ).fetchone()
+        context_batch = dict(row) if row else None
+        if context_batch is None:
+            st.warning("批次上下文已失效，已切换为手动路径模式。")
+            st.session_state.pop("pc_batch_id", None)
+    batch_id = str(context_batch["id"]) if context_batch else ""
+    if context_batch:
+        st.success(
+            f"当前批次：{context_batch.get('display_id') or ''} {context_batch.get('name') or ''} · "
+            f"路径：`{context_batch.get('batch_path') or context_batch.get('data_root') or ''}`"
+        )
+        if st.button("退出批次模式（改用手动路径）", key="pc_exit_batch"):
+            st.session_state.pop("pc_batch_id", None)
+            st.session_state.pop("precheck_root", None)
+            st.session_state.pop("_pc_pairs", None)
+            st.rerun()
+        root = context_batch.get("batch_path") or context_batch.get("data_root") or ""
+        col_operator, col_profile = st.columns([1, 2])
+        operator = col_operator.text_input(
+            "操作员", value=st.session_state.get("operator_name", ""), key="pc_operator"
+        )
+        active = service.active_profile_id()
+        profile_ids = list(profiles.keys())
+        profile_id = col_profile.selectbox(
+            "模型配置",
+            options=profile_ids,
+            index=profile_ids.index(active) if active in profile_ids else 0,
+            format_func=lambda key: profiles[key],
+            key="pc_profile",
+        )
+        st.caption(f"翻译根目录（来自批次）：`{root}`")
+    else:
+        choices = {
+            item["id"]: f"{item.get('display_id') or ''} {item.get('name') or ''}".strip()
+            for item in [
+                dict(row)
+                for row in service.db.connect().execute(
+                    "SELECT id, display_id, name FROM batches ORDER BY COALESCE(submit_date, created_at) DESC"
+                ).fetchall()
+            ]
+        }
+        c_batch, c_operator, c_profile = st.columns([2, 1, 2])
+        chosen_batch = c_batch.selectbox(
+            "关联批次（可选；选择后无需填写路径）",
+            options=["", *list(choices.keys())],
+            format_func=lambda key: "不关联批次（手动路径）" if key == "" else choices[key],
+            key="pc_context_batch",
+        )
+        operator = c_operator.text_input(
+            "操作员", value=st.session_state.get("operator_name", ""), key="pc_operator"
+        )
+        active = service.active_profile_id()
+        profile_ids = list(profiles.keys())
+        profile_id = c_profile.selectbox(
+            "模型配置",
+            options=profile_ids,
+            index=profile_ids.index(active) if active in profile_ids else 0,
+            format_func=lambda key: profiles[key],
+            key="pc_profile",
+        )
+        if chosen_batch:
+            row = service.db.connect().execute(
+                "SELECT batch_path, data_root FROM batches WHERE id = ?", (chosen_batch,)
+            ).fetchone()
+            batch_id = chosen_batch
+            root = (row["batch_path"] or row["data_root"] or "") if row else ""
+            st.caption(f"翻译根目录（来自批次）：`{root}`")
+        else:
+            default_root = st.session_state.get("precheck_root") or st.session_state.get("root_path", "")
+            root = st.text_input("根目录", value=default_root, key="pc_root_input")
     profile = service.get_profile(profile_id)
     if profile is not None:
         st.caption(
@@ -222,13 +282,28 @@ def _render_translate(service: PrecheckService) -> None:
         if not service.has_api_key(profile_id):
             st.warning("该配置还没有保存 API Key；可在“模型与提示词”中填写。")
 
+    if st.session_state.get("_pc_pairs_root") not in (None, root):
+        st.session_state.pop("_pc_pairs", None)
     col_recursive, col_only_missing = st.columns(2)
     recursive = col_recursive.checkbox(
-        "递归扫描全部层级", value=False, key="pc_recursive"
+        "递归扫描全部层级", value=True if batch_id else False, key="pc_recursive"
     )
+    retry_mode = st.session_state.get("pc_translation_mode") == "retry"
     only_missing = col_only_missing.checkbox(
-        "只翻译缺失/为空的英文", value=True, key="pc_only_missing"
+        "只翻译缺失/为空的英文", value=not retry_mode, key="pc_only_missing"
     )
+
+    if st.session_state.pop("pc_auto_scan", False) and root.strip():
+        try:
+            with st.spinner("正在读取当前批次目录与 TXT…"):
+                result = service.scan(
+                    root.strip(), PairingOptions(recursive=bool(recursive))
+                )
+            st.session_state["_pc_pairs"] = result
+            st.session_state["_pc_pairs_root"] = root.strip()
+            st.session_state["precheck_root"] = root.strip()
+        except Exception as exc:
+            st.error(f"扫描失败：{exc}")
 
     if st.button(
         "🔍 扫描 TXT 配对",
@@ -243,6 +318,7 @@ def _render_translate(service: PrecheckService) -> None:
                     root.strip(), PairingOptions(recursive=bool(recursive))
                 )
             st.session_state["_pc_pairs"] = result
+            st.session_state["_pc_pairs_root"] = root.strip()
             st.session_state["precheck_root"] = root.strip()
         except Exception as exc:
             st.error(f"扫描失败：{exc}")
@@ -291,10 +367,15 @@ def _render_translate(service: PrecheckService) -> None:
         st.success("没有待翻译任务。")
         return
 
+    preselect = [
+        path
+        for path in st.session_state.get("pc_preselect_paths") or []
+        if path in {item.folder_path for item in pending_items}
+    ]
     selected = st.multiselect(
         "本次翻译的任务（默认全选待翻译任务）",
         options=[item.folder_path for item in pending_items],
-        default=[item.folder_path for item in pending_items],
+        default=preselect or [item.folder_path for item in pending_items],
         format_func=lambda path: os.path.basename(path),
         key="pc_selected_paths",
     )
@@ -306,8 +387,9 @@ def _render_translate(service: PrecheckService) -> None:
         key="pc_translate_btn",
     ):
         request = TranslationRequest(
-            root_path=st.session_state.get("precheck_root") or root.strip(),
+            root_path=root.strip(),
             profile_id=profile_id,
+            batch_id=batch_id,
             task_paths=tuple(selected),
             only_missing=bool(only_missing),
             operator=operator.strip(),

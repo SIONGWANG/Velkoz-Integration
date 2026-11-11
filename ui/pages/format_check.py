@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import time
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -312,6 +313,14 @@ def _render_result(result: FormatCheckResult, service: FormatCheckerService) -> 
         st.json(result.to_dict())
 
 
+def _batch_list(service: FormatCheckerService) -> list[dict[str, Any]]:
+    rows = service.db.connect().execute(
+        "SELECT id, display_id, name, batch_path, data_root, category_l1, category_l2 FROM batches"
+        " ORDER BY COALESCE(submit_date, created_at) DESC"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _render_check(service: FormatCheckerService) -> None:
     if st.session_state.get("_fmt_runner"):
         _render_runner()
@@ -320,6 +329,39 @@ def _render_check(service: FormatCheckerService) -> None:
     error = st.session_state.pop("_fmt_error", "")
     if error:
         st.error(f"检查失败：{error}")
+
+    context_batch: dict[str, Any] | None = None
+    context_id = str(st.session_state.get("fmt_batch_id") or "")
+    if context_id:
+        for item in _batch_list(service):
+            if item["id"] == context_id:
+                context_batch = item
+                break
+        if context_batch is None:
+            st.warning("批次上下文已失效，已切换为手动路径模式。")
+            st.session_state.pop("fmt_batch_id", None)
+    batch_id = str(context_batch["id"]) if context_batch else ""
+    if context_batch:
+        st.success(
+            f"当前批次：{context_batch.get('display_id') or ''} {context_batch.get('name') or ''} · "
+            f"路径：`{context_batch.get('batch_path') or context_batch.get('data_root') or ''}`"
+        )
+        if st.button("退出批次模式（改用手动路径）", key="fmt_exit_batch"):
+            st.session_state.pop("fmt_batch_id", None)
+            st.session_state.pop("format_root", None)
+            st.rerun()
+        preferred = ""
+        for item in service.list_templates():
+            scope = str(item.get("scope") or "")
+            scope_id = str(item.get("scope_id") or "")
+            if scope == "category" and scope_id and scope_id in {
+                context_batch.get("category_l1") or "",
+                context_batch.get("category_l2") or "",
+            }:
+                preferred = str(item["id"])
+                break
+        if preferred and "fmt_template_id" not in st.session_state:
+            st.session_state["fmt_template_id"] = preferred
 
     options = _template_options(service)
     col_template, col_version = st.columns([3, 2])
@@ -346,16 +388,43 @@ def _render_check(service: FormatCheckerService) -> None:
         st.caption("检查只读取目录项、文件大小和修改时间；不写入、不重命名、不删除任何源文件。")
         st.json(template.to_dict())
 
-    default_root = st.session_state.get("format_root") or st.session_state.get("root_path", "")
-    col_root, col_operator = st.columns([3, 1])
-    root = col_root.text_input("检查根目录", value=default_root, key="fmt_root_input")
-    operator = col_operator.text_input(
-        "操作员", value=st.session_state.get("operator_name", ""), key="fmt_operator"
-    )
+    if context_batch:
+        root = context_batch.get("batch_path") or context_batch.get("data_root") or ""
+        operator = st.text_input(
+            "操作员", value=st.session_state.get("operator_name", ""), key="fmt_operator"
+        )
+        st.caption(f"检查根目录（来自批次）：`{root}`")
+    else:
+        choices = {
+            item["id"]: f"{item.get('display_id') or ''} {item.get('name') or ''}".strip()
+            for item in _batch_list(service)
+        }
+        c_batch, c_operator = st.columns([2, 1])
+        chosen_batch = c_batch.selectbox(
+            "关联批次（可选；选择后无需填写路径）",
+            options=["", *list(choices.keys())],
+            format_func=lambda key: "不关联批次（手动路径）" if key == "" else choices[key],
+            key="fmt_context_batch",
+        )
+        operator = c_operator.text_input(
+            "操作员", value=st.session_state.get("operator_name", ""), key="fmt_operator"
+        )
+        if chosen_batch:
+            row = service.db.connect().execute(
+                "SELECT batch_path, data_root FROM batches WHERE id = ?", (chosen_batch,)
+            ).fetchone()
+            batch_id = chosen_batch
+            root = (row["batch_path"] or row["data_root"] or "") if row else ""
+            st.caption(f"检查根目录（来自批次）：`{root}`")
+        else:
+            default_root = st.session_state.get("format_root") or st.session_state.get("root_path", "")
+            root = st.text_input("检查根目录", value=default_root, key="fmt_root_input")
 
     col_recursive, col_max = st.columns(2)
     recursive = col_recursive.checkbox(
-        "递归扫描全部层级", value=bool(template.scan.recursive), key="fmt_recursive"
+        "递归扫描全部层级",
+        value=True if batch_id else bool(template.scan.recursive),
+        key="fmt_recursive",
     )
     max_tasks = col_max.number_input(
         "最大任务数",
@@ -379,15 +448,20 @@ def _render_check(service: FormatCheckerService) -> None:
             )
             for item in history
         }
+        prev_options = ["", *list(labels.keys())]
+        remembered_prev = str(st.session_state.pop("fmt_previous_run_id", "") or "")
+        prev_index = prev_options.index(remembered_prev) if remembered_prev in prev_options else 0
         previous_run_id = col_prev.selectbox(
             "上次检查记录（用于对比/仅异常）",
-            options=[""] + list(labels.keys()),
+            options=prev_options,
+            index=prev_index,
             format_func=lambda key: "不关联" if key == "" else labels[key],
             key="fmt_previous_run",
         )
+        remembered_only = bool(st.session_state.pop("fmt_only_anomalies", False))
         only_anomalies = col_only.checkbox(
             "仅检查上次异常/警告任务",
-            value=False,
+            value=remembered_only,
             disabled=not previous_run_id,
             key="fmt_only_anomalies",
         )
@@ -432,6 +506,7 @@ def _render_check(service: FormatCheckerService) -> None:
             previous_run_id=previous_run_id or None,
             max_tasks=int(max_tasks),
             operator=operator.strip(),
+            batch_id=batch_id,
             write_report=True,
         )
         state = {

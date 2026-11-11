@@ -12,6 +12,8 @@ from modules.database.backup import backup_database, list_backups, verify_databa
 from modules.database.connection import Database
 from modules.database.repositories import recent_operation_logs, recent_scan_runs
 from modules.scanning.service import ScanService
+from modules.workspace.models import DEFAULT_FINAL_DIR, DEFAULT_PENDING_DIR
+from modules.workspace.service import WorkspaceService
 
 
 def _human_size(size: int) -> str:
@@ -24,7 +26,7 @@ def _human_size(size: int) -> str:
 
 
 def render() -> None:
-    st.title("⚙️ 管理设置（1.25.0）")
+    st.title("⚙️ 管理设置（1.25.8）")
     st.caption("管理数据库只存路径、状态和日志，不存图片/TXT/CSV 原文。")
 
     paths = app_config.describe_paths()
@@ -50,6 +52,147 @@ def render() -> None:
             st.success("已创建：" + "、".join(str(path) for path in created.values()))
         except OSError as exc:
             st.error(f"创建失败：{exc}")
+
+    st.divider()
+    st.subheader("业务数据目录（待验 / 申请终验）")
+    st.caption(
+        f"只接入 {DEFAULT_PENDING_DIR} 与 {DEFAULT_FINAL_DIR}；不会递归扫描项目根目录、"
+        "00-试做情况 或 01-素材仓库。目录不存在时只报告错误，不会自动创建。"
+    )
+    workspace: WorkspaceService | None = None
+    try:
+        workspace = WorkspaceService()
+        projects = workspace.projects.list()
+        if projects:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "项目": item.project_name,
+                            "待验目录": item.pending_path or "未配置",
+                            "申请终验目录": item.final_path or "未配置",
+                            "启用": "是" if item.enabled else "否",
+                            "最近刷新": item.last_scan_at or "尚未刷新",
+                        }
+                        for item in projects
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            options = {
+                item.id: f"{item.project_name}（{'启用' if item.enabled else '停用'}）"
+                for item in projects
+            }
+            chosen = st.selectbox(
+                "选择要修改的项目",
+                options=list(options.keys()),
+                format_func=lambda value: options[value],
+                key="settings_project_id",
+            )
+            current = next(item for item in projects if item.id == chosen)
+            with st.expander(f"编辑：{current.project_name}", expanded=False):
+                name = st.text_input("项目名称", value=current.project_name, key=f"settings_project_name_{current.id}")
+                parent = st.text_input("项目根目录（可选）", value=current.parent_path, key=f"settings_project_parent_{current.id}")
+                pending = st.text_input("待验数据目录", value=current.pending_path, key=f"settings_project_pending_{current.id}")
+                final = st.text_input("申请终验目录", value=current.final_path, key=f"settings_project_final_{current.id}")
+                note = st.text_input("备注（可选）", value=current.note, key=f"settings_project_note_{current.id}")
+                enabled = st.checkbox("启用该项目", value=current.enabled, key=f"settings_project_enabled_{current.id}")
+                c1, c2, c3 = st.columns(3)
+                if c1.button("保存修改", type="primary", use_container_width=True, key="settings_project_save"):
+                    try:
+                        workspace.projects.update(
+                            current.id,
+                            project_name=name,
+                            parent_path=parent,
+                            pending_path=pending,
+                            final_path=final,
+                            enabled=enabled,
+                            note=note,
+                        )
+                        st.success("已保存；只影响当前项目，其他项目配置不变。")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"保存失败：{exc}")
+                if c2.button("检测两个目录", use_container_width=True, key="settings_project_detect"):
+                    for path, label in ((pending, "待验数据目录"), (final, "申请终验目录")):
+                        item = workspace.projects.detect_path(path, label=label)
+                        st.success(f"{label}：可用 `{item.path}`") if item.ok else st.error(item.error)
+                if c3.button("刷新该项目目录", use_container_width=True, key="settings_project_refresh"):
+                    with st.spinner("正在刷新待验与申请终验目录…"):
+                        result = workspace.refresh_project(
+                            current.id,
+                            operator=st.session_state.get("operator_name", ""),
+                        )
+                    for summary in result.get("summaries", []):
+                        st.info(
+                            f"{summary.get('source_label')}：{summary.get('status')}，"
+                            f"新发现 {summary.get('new_batches', 0)}，"
+                            f"已有 {summary.get('existing_batches', 0)}"
+                        )
+                        for message in summary.get("errors") or []:
+                            st.error(message)
+                confirm_delete = st.checkbox(
+                    "我确认删除该配置（历史批次与检查记录会保留）",
+                    key=f"settings_project_delete_confirm_{current.id}",
+                )
+                if st.button(
+                    "删除该项目配置",
+                    disabled=not confirm_delete,
+                    key="settings_project_delete",
+                ):
+                    workspace.projects.delete(current.id)
+                    st.success("已删除配置；历史批次没有删除。")
+                    st.rerun()
+        else:
+            st.info("尚未配置业务目录。可在下方新增项目，或到工作台完成首次配置。")
+
+        with st.expander("新增项目目录", expanded=not projects):
+            new_name = st.text_input("项目名称", key="settings_new_project_name")
+            new_parent = st.text_input(
+                "项目根目录（推荐）",
+                placeholder=r"\\10.10.111.227\美学\lizhiru\库\卢岳-混编项目-11月",
+                key="settings_new_project_parent",
+            )
+            if st.button("检测根目录下的两个业务目录", key="settings_new_project_detect"):
+                detection = workspace.projects.detect_parent(new_parent)
+                st.session_state["_settings_new_detection"] = detection
+            detection = st.session_state.get("_settings_new_detection")
+            new_pending = new_final = ""
+            if detection is not None:
+                for label, item in (("待验数据目录", detection.pending), ("申请终验目录", detection.final)):
+                    if item is None:
+                        continue
+                    st.success(f"{label}：已找到 `{item.path}`") if item.ok else st.warning(f"{label}：{item.error}")
+                for error in detection.errors:
+                    st.error(error)
+                if detection.pending:
+                    new_pending = detection.pending.path
+                if detection.final:
+                    new_final = detection.final.path
+            new_pending = st.text_input(
+                "待验数据目录（可单独填写）", value=new_pending, key="settings_new_project_pending"
+            )
+            new_final = st.text_input(
+                "申请终验目录（可单独填写）", value=new_final, key="settings_new_project_final"
+            )
+            if st.button("保存新项目", type="primary", key="settings_new_project_save"):
+                try:
+                    workspace.projects.create(
+                        new_name or os.path.basename(os.path.normpath(new_parent or "")) or "新项目",
+                        parent_path=new_parent,
+                        pending_path=new_pending,
+                        final_path=new_final,
+                    )
+                    st.success("已新增项目；其他项目配置不受影响。")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"保存失败：{exc}")
+    except Exception as exc:
+        st.error(f"读取业务目录配置失败：{exc}")
+    finally:
+        if workspace is not None:
+            workspace.close()
 
     st.divider()
     st.subheader("数据库状态")

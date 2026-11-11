@@ -239,8 +239,50 @@ class RecordImportService:
                 note=result.note,
                 imported_at=now_iso(),
             )
+            if result.batch_id:
+                self._sync_batch_acceptance(result.batch_id)
         self._audit(source, result, operator, dry_run)
         return result
+
+    def _sync_batch_acceptance(self, batch_id: str) -> None:
+        """用已导入验收记录刷新批次统计；没有记录时不伪造完成。"""
+        conn = self.db.connect()
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT COALESCE(ir.task_id, ir.data_group_id)) AS accepted_tasks,
+                   COALESCE(SUM(CASE WHEN ir.result IN ('合格', '修改后合格') THEN 1 ELSE 0 END), 0) AS qualified,
+                   COALESCE(SUM(CASE WHEN ir.result IN ('不合格', '作废') THEN 1 ELSE 0 END), 0) AS rejected
+            FROM imported_records ir
+            LEFT JOIN record_imports ri ON ri.id = ir.import_id
+            LEFT JOIN data_groups g ON g.id = ir.data_group_id
+            WHERE COALESCE(ri.batch_id, g.batch_id) = ?
+            """,
+            (batch_id,),
+        ).fetchone()
+        batch = conn.execute("SELECT data_count FROM batches WHERE id = ?", (batch_id,)).fetchone()
+        if row is None or batch is None:
+            return
+        accepted = int(row["accepted_tasks"] or 0)
+        qualified = int(row["qualified"] or 0)
+        rejected = int(row["rejected"] or 0)
+        data_count = int(batch["data_count"] or 0)
+        remaining = max(0, data_count - accepted) if data_count > 0 else 0
+        if accepted <= 0:
+            status = "not_started"
+        elif data_count > 0 and remaining <= 0:
+            status = "completed"
+        else:
+            status = "in_progress"
+        conn.execute(
+            """
+            UPDATE batches
+            SET qualified_count = ?, rejected_count = ?, remaining_count = ?,
+                acceptance_status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (qualified, rejected, remaining, status, now_iso(), batch_id),
+        )
+        conn.commit()
 
     def import_files(
         self,

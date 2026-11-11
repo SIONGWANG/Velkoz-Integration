@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from modules.common.path_guard import normalize_path
-from modules.common.timeutil import today_str
+from modules.common.timeutil import now_iso, today_str
 from modules.config import app_config
 from modules.database.connection import Database, open_database
 from modules.database.repositories import format_repo
@@ -178,6 +178,8 @@ class FormatCheckerService:
             operator=request.operator,
             previous_run_id=request.previous_run_id,
         )
+        if request.batch_id:
+            self._sync_batch_format_status(request.batch_id, result.summary)
 
         diff = None
         if diff_with_previous and request.previous_run_id:
@@ -206,6 +208,27 @@ class FormatCheckerService:
                 format_repo.update_run_report(self.db, run_id, primary)
                 result.summary.report_path = primary
         return result
+
+    def _sync_batch_format_status(self, batch_id: str, summary: Any) -> None:
+        """把最近一次格式检查结果同步到批次索引。"""
+        status = str(getattr(summary, "status", "") or "")
+        failed = int(getattr(summary, "failed_tasks", 0) or 0)
+        warnings = int(getattr(summary, "warning_tasks", 0) or 0)
+        if status in {"failed", "error"} or failed > 0:
+            value = "failed"
+        elif status in {"cancelled", "partial"}:
+            value = "partial"
+        elif warnings > 0:
+            value = "warning"
+        elif int(getattr(summary, "scanned_tasks", 0) or 0) > 0:
+            value = "passed"
+        else:
+            value = "partial"
+        self.db.connect().execute(
+            "UPDATE batches SET format_status = ?, updated_at = ? WHERE id = ?",
+            (value, now_iso(), batch_id),
+        )
+        self.db.connect().commit()
 
     # ── 历史 / 差异 / 重跑 ────────────────────────────────
 

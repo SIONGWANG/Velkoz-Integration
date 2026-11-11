@@ -123,6 +123,11 @@ class ScanResult:
     truncated: bool = False
     options: ScanOptions = field(default_factory=ScanOptions)
     ruleset_json: str = ""
+    source_type: str = ""
+    project_root_id: str = ""
+    project_name: str = ""
+    unrecognized_dirs: int = 0
+    access_failures: int = 0
 
     @property
     def stats(self) -> dict[str, Any]:
@@ -142,6 +147,9 @@ class ScanResult:
             "issues": len(self.issues),
             "duration_ms": self.duration_ms,
             "truncated": self.truncated,
+            "source_type": self.source_type,
+            "unrecognized_dirs": self.unrecognized_dirs,
+            "access_failures": self.access_failures,
             "candidate_status": status_counts,
             "issue_reasons": reason_counts,
         }

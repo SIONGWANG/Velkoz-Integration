@@ -206,6 +206,12 @@ modules/
 │   └── service.py
 ├── archive/
 ├── stats/
+├── workspace/              # v1.25.8 业务目录、双来源发现、批次工作台
+│   ├── models.py
+│   ├── project_roots.py    # 多项目待验/申请终验目录配置
+│   ├── discovery.py        # 双来源增量发现
+│   ├── repository.py       # 扫描记录与批次快照
+│   └── service.py
 ├── audit_log/
 └── ui/
     ├── router.py
@@ -227,6 +233,7 @@ modules/
 | `record_import` | 其他验收员记录只读导入 | v1.25.4 |
 | `archive` | 合格数据只复制归档 | v1.25.6 |
 | `stats` | 统计/日报/可追溯明细/Excel | v1.25.7 |
+| `workspace` | 多项目业务目录、待验/申请终验双来源发现、批次工作台与来源关联 | v1.25.8 |
 | `database` | SQLite/迁移/备份 | v1.25.0 |
 | `config` | 配置/密钥 | v1.25.0 |
 | `audit_log` | 结构化操作日志 | v1.25.0 |

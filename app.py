@@ -169,7 +169,7 @@ class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixi
             st.caption(f"审视之眼 Pro V{version} · 正式质检")
         with top_right:
             if st.button("🧭 管理中心", use_container_width=True, key="open_management_center"):
-                st.session_state["nav_page"] = "batch_overview"
+                st.session_state["nav_page"] = "workbench"
                 st.rerun()
 
         remain = (100 - b_width_percent) / 2

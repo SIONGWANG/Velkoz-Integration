@@ -202,8 +202,16 @@ operation_logs（独立，关联任意 run/job）
 | remaining_count | INTEGER | |
 | status | TEXT | registered/downloaded/scan_pending/confirmed/translating/accepting/archived/paused |
 | source | TEXT | manual/scan/import |
+| source_type | TEXT | v1.25.8：pending_acceptance/final_acceptance/legacy |
+| source_root_id | TEXT | v1.25.8：项目目录配置 ID |
+| source_root_path | TEXT | v1.25.8：本次扫描的业务根目录 |
+| relative_path | TEXT | v1.25.8：批次相对业务根目录的路径 |
+| parent_batch_id | TEXT | v1.25.8：申请终验关联的原始待验批次 |
+| project_name | TEXT | v1.25.8：项目名称快照 |
 | created_at/updated_at | TEXT | |
 | UNIQUE(project_id, name, data_root) | | |
+
+> v1.25.8 迁移 `0008_workspace.sql` 增量添加 `source_type/source_root_id/source_root_path/relative_path/parent_batch_id/project_name`；旧批次默认 `legacy`，不会因迁移丢失。
 
 #### `sub_batches`
 
@@ -617,6 +625,24 @@ operation_logs（独立，关联任意 run/job）
 | updated_at | TEXT | |
 
 ### 5.11 统计/日志
+
+#### `project_roots`（v1.25.8）
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PK | |
+| project_name | TEXT | 项目名称 |
+| parent_path | TEXT | 可选共同父目录 |
+| pending_path | TEXT | 02-待验数据 |
+| final_path | TEXT | 03-申请终验 |
+| enabled | INTEGER | 是否启用 |
+| note | TEXT | |
+| last_scan_at | TEXT | |
+| pending_scan_at | TEXT | |
+| final_scan_at | TEXT | |
+| created_at/updated_at | TEXT | |
+
+> 每个项目独立配置；修改/删除配置不会删除历史批次。扫描记录 `scan_runs` 同步增加 `source_type/project_root_id/project_name`。
 
 #### `stats_daily`（缓存，可重建）
 
