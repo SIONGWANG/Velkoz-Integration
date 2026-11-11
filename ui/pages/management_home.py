@@ -14,14 +14,33 @@ import streamlit as st
 
 from modules.batch_management.dashboard import (
     BatchDashboard,
-    acceptance_label,
-    format_label,
     status_label,
-    translation_label,
 )
 from modules.batch_management.service import BatchService
+from modules.common.timeutil import today_str
+from modules.export_library import (
+    build_library_target,
+    export_qualified_groups,
+    get_library_root,
+    qualified_groups,
+    resolve_source_root,
+    save_library_root,
+    validate_library_root,
+)
+from modules.feishu_summary import daily_summary, summary_rows
 from modules.workspace.models import SOURCE_FINAL, SOURCE_LABELS, SOURCE_PENDING
 from modules.workspace.service import WorkspaceService
+from modules.workbench_view import (
+    filter_rows as wb_filter_rows,
+    group_by_category,
+    group_by_team,
+    is_anomaly,
+    next_action,
+    progress_text,
+    result_text,
+    status_word,
+    todo_counts,
+)
 
 _ALL = "全部"
 
@@ -224,201 +243,121 @@ def _set_translation_context(
 
 
 def _open_acceptance(batch: dict[str, Any]) -> None:
+    """从批次直接进入正式质检：自动加载该批次目录，不需要再粘贴路径。"""
     path = batch.get("batch_path") or batch.get("data_root") or ""
     st.session_state["root_path"] = path
     st.session_state["data_groups"] = []
     st.session_state["current_id"] = None
     st.session_state["last_loaded_id"] = None
     st.session_state["scan_cache_buster"] = int(st.session_state.get("scan_cache_buster", 0)) + 1
+    st.session_state["_scan_path"] = path
+    st.session_state["is_scanning"] = bool(path)
     st.session_state["nav_page"] = "acceptance"
     st.rerun()
 
 
-def _batch_actions(batch: dict[str, Any], *, key_prefix: str, compact: bool = False) -> None:
-    columns = st.columns(6)
-    if columns[0].button("查看详情", use_container_width=True, key=f"{key_prefix}_detail"):
-        _open_batch(str(batch["id"]))
-    if columns[1].button("格式检查", use_container_width=True, key=f"{key_prefix}_format"):
+def _run_batch_action(batch: dict[str, Any], action: str, *, key_prefix: str) -> None:
+    """批次主按钮：路径完全隐藏，所有操作都以 batch_id 为上下文。"""
+    if action == "format":
         _set_format_context(batch)
-    if columns[2].button("翻译", use_container_width=True, key=f"{key_prefix}_translate"):
-        _set_translation_context(batch)
-    if columns[3].button("正式质检", use_container_width=True, key=f"{key_prefix}_acceptance"):
+    elif action == "translate":
+        _set_translation_context(batch, mode="missing")
+    elif action == "acceptance":
         _open_acceptance(batch)
-    if columns[4].button("验收记录", use_container_width=True, key=f"{key_prefix}_records"):
-        st.session_state["ri_batch"] = str(batch["id"])
-        _go("record_import")
-    if columns[5].button("合格归档", use_container_width=True, key=f"{key_prefix}_archive"):
+    elif action == "archive":
         st.session_state["archive_batch"] = str(batch["id"])
         _go("archive")
-    if not compact:
-        st.caption(
-            f"当前操作批次：{batch.get('name') or batch.get('id')} · "
-            f"路径：`{batch.get('batch_path') or batch.get('data_root') or '未记录'}`"
-        )
-
-
-def _workspace_frame(rows: list[dict[str, Any]], *, show_source: bool = False) -> pd.DataFrame:
-    data = []
-    for row in rows:
-        item = {
-            "批次名称": row.get("name") or "",
-            "批次号": row.get("display_id") or "",
-            "大类目": row.get("category_l1") or "",
-            "小类目": row.get("category_l2") or "",
-            "团队": row.get("team") or "",
-            "日期": row.get("submit_date") or "",
-            "数据量": int(row.get("task_count") or 0),
-            "图片数": int(row.get("image_count") or 0),
-            "格式检查": row.get("format_state_label") or "未检查",
-            "格式异常": f"{int(row.get('format_failed') or 0)} / {int(row.get('format_warnings') or 0)}",
-            "翻译状态": row.get("translation_state_label") or "",
-            "验收状态": (
-                row.get("final_state_label")
-                if (row.get("source_type") == SOURCE_FINAL and row.get("final_state_label"))
-                else row.get("acceptance_state_label")
-            )
-            or "",
-            "最近活动": _fmt_time(row.get("last_activity")),
-        }
-        if show_source:
-            item["来源"] = row.get("source_label") or ""
-        data.append(item)
-    return pd.DataFrame(data)
-
-
-def _workspace_filters(rows: list[dict[str, Any]], *, prefix: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    format_options = {row.get("format_state") or "": row.get("format_state_label") or "" for row in rows}
-    translation_options = {
-        row.get("translation_state") or "": row.get("translation_state_label") or "" for row in rows
-    }
-    acceptance_options = {
-        row.get("acceptance_state") or "": row.get("acceptance_state_label") or "" for row in rows
-    }
-    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-    keyword = c1.text_input("搜索批次 / 团队 / 路径", key=f"{prefix}_search")
-    team = c2.selectbox(
-        "团队",
-        ["全部", *sorted({row.get("team") or "" for row in rows if row.get("team")})],
-        key=f"{prefix}_team",
-    )
-    category = c3.selectbox(
-        "类别",
-        [
-            "全部",
-            *sorted(
-                {
-                    f"{row.get('category_l1') or ''} / {row.get('category_l2') or ''}"
-                    for row in rows
-                    if row.get("category_l1") or row.get("category_l2")
-                }
-            ),
-        ],
-        key=f"{prefix}_category",
-    )
-    date = c4.selectbox(
-        "日期",
-        ["全部", *sorted({row.get("submit_date") or "" for row in rows if row.get("submit_date")}, reverse=True)],
-        key=f"{prefix}_date",
-    )
-    c5, c6, c7, c8 = st.columns(4)
-    format_choice = c5.selectbox(
-        "格式状态",
-        ["全部", *[label for code, label in format_options.items() if code]],
-        key=f"{prefix}_format",
-    )
-    translation_choice = c6.selectbox(
-        "翻译状态",
-        ["全部", *[label for code, label in translation_options.items() if code]],
-        key=f"{prefix}_translation",
-    )
-    acceptance_choice = c7.selectbox(
-        "验收状态",
-        ["全部", *[label for code, label in acceptance_options.items() if code]],
-        key=f"{prefix}_acceptance",
-    )
-    sort_choice = c8.selectbox(
-        "排序",
-        ["最近活动", "日期", "图片数", "数据量", "批次名"],
-        key=f"{prefix}_sort",
-    )
-    needle = keyword.strip().casefold()
-    filtered: list[dict[str, Any]] = []
-    for row in rows:
-        if team != "全部" and row.get("team") != team:
-            continue
-        category_value = f"{row.get('category_l1') or ''} / {row.get('category_l2') or ''}"
-        if category != "全部" and category_value != category:
-            continue
-        if date != "全部" and row.get("submit_date") != date:
-            continue
-        if format_choice != "全部" and row.get("format_state_label") != format_choice:
-            continue
-        if translation_choice != "全部" and row.get("translation_state_label") != translation_choice:
-            continue
-        if acceptance_choice != "全部" and row.get("acceptance_state_label") != acceptance_choice:
-            continue
-        if needle:
-            haystack = " ".join(
-                str(row.get(key) or "")
-                for key in ("name", "display_id", "team", "batch_path", "source_root_path", "category_l1", "category_l2")
-            ).casefold()
-            if needle not in haystack:
-                continue
-        filtered.append(row)
-    if sort_choice == "日期":
-        filtered.sort(key=lambda row: row.get("submit_date") or "", reverse=True)
-    elif sort_choice == "图片数":
-        filtered.sort(key=lambda row: int(row.get("image_count") or 0), reverse=True)
-    elif sort_choice == "数据量":
-        filtered.sort(key=lambda row: int(row.get("task_count") or 0), reverse=True)
-    elif sort_choice == "批次名":
-        filtered.sort(key=lambda row: row.get("name") or "")
     else:
-        filtered.sort(key=lambda row: row.get("last_activity") or "", reverse=True)
-    return filtered, {
+        _open_batch(str(batch["id"]))
+
+
+def _render_batch_card(row: dict[str, Any], *, key_prefix: str) -> None:
+    """一行一个批次：左边事实，右边一个主按钮 + 详情。"""
+    batch_id = str(row.get("id") or "")
+    action, action_label = next_action(row)
+    total = int(row.get("task_count") or 0)
+    accepted = int(row.get("accepted_records") or 0)
+    percent = min(1.0, accepted / total) if total else 0.0
+
+    with st.container(border=True):
+        info, buttons = st.columns([5, 2])
+        with info:
+            title = row.get("name") or row.get("display_id") or "未命名批次"
+            st.markdown(f"**{title}**")
+            meta = " · ".join(
+                part
+                for part in (
+                    row.get("display_id") or "",
+                    row.get("submit_date") or "",
+                    f"{total} 组",
+                    f"{int(row.get('image_count') or 0)} 张",
+                )
+                if part
+            )
+            st.caption(meta)
+            st.caption(f"{status_word(row)} · {progress_text(row)}")
+            st.caption(result_text(row))
+            if is_anomaly(row):
+                st.caption("⚠️ 有异常，详情里可查看和处理")
+            st.progress(percent)
+        with buttons:
+            if st.button(
+                action_label,
+                type="primary",
+                use_container_width=True,
+                key=f"{key_prefix}_go_{batch_id}",
+            ):
+                _run_batch_action(row, action, key_prefix=key_prefix)
+            if st.button(
+                "详情",
+                use_container_width=True,
+                key=f"{key_prefix}_detail_{batch_id}",
+            ):
+                _open_batch(batch_id)
+
+
+def _render_batch_cards(rows: list[dict[str, Any]], *, key_prefix: str) -> None:
+    for team, team_rows in group_by_team(rows):
+        st.markdown(f"#### 👥 {team}")
+        st.caption(
+            f"{len(team_rows)} 批 · "
+            f"{sum(int(row.get('task_count') or 0) for row in team_rows)} 组 · "
+            f"{sum(int(row.get('image_count') or 0) for row in team_rows)} 张"
+        )
+        for category, category_rows in group_by_category(team_rows):
+            st.markdown(f"**{category}**")
+            for row in category_rows:
+                _render_batch_card(row, key_prefix=key_prefix)
+
+
+def _render_workbench_filters(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    teams = sorted({row.get("team") or "未指定团队" for row in rows})
+    categories = sorted(
+        {
+            " / ".join(part for part in (row.get("category_l1") or "", row.get("category_l2") or "") if part)
+            or "未分类"
+            for row in rows
+        }
+    )
+    dates = sorted({row.get("submit_date") or "" for row in rows if row.get("submit_date")}, reverse=True)
+    c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+    keyword = c1.text_input(
+        "搜索",
+        key="ws_search",
+        placeholder="批次名、批次号、团队、类目",
+        label_visibility="collapsed",
+    )
+    team = c2.selectbox("团队", ["全部", *teams], key="ws_team", label_visibility="collapsed")
+    category = c3.selectbox("类目", ["全部", *categories], key="ws_category", label_visibility="collapsed")
+    date = c4.selectbox("日期", ["全部", *dates], key="ws_date", label_visibility="collapsed")
+    only_todo = st.toggle("只看未完成", value=True, key="ws_only_todo")
+    return {
+        "team": "" if team == "全部" else team,
+        "category": "" if category == "全部" else category,
+        "date": "" if date == "全部" else date,
         "keyword": keyword,
-        "team": team,
-        "category": category,
-        "date": date,
-        "format": format_choice,
-        "translation": translation_choice,
-        "acceptance": acceptance_choice,
-        "sort": sort_choice,
+        "only_todo": only_todo,
     }
-
-
-def _render_batch_list(rows: list[dict[str, Any]], *, key_prefix: str, show_source: bool = False) -> None:
-    if not rows:
-        st.info("当前条件下没有批次。可刷新目录，或在“待确认”中确认新发现的批次。")
-        return
-    filtered, _filters = _workspace_filters(rows, prefix=key_prefix)
-    if not filtered:
-        st.warning("当前筛选条件下没有批次。")
-        return
-    frame = _workspace_frame(filtered, show_source=show_source)
-    event = st.dataframe(
-        frame,
-        use_container_width=True,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        key=f"{key_prefix}_table",
-    )
-    selected = getattr(getattr(event, "selection", None), "rows", []) if event is not None else []
-    index = int(selected[0]) if selected else 0
-    labels = {
-        row["id"]: f"{row.get('display_id') or row.get('id')} | {row.get('name') or ''} | {row.get('team') or ''}"
-        for row in filtered
-    }
-    chosen = st.selectbox(
-        "选择批次进行操作",
-        options=list(labels.keys()),
-        index=min(index, len(labels) - 1),
-        format_func=lambda value: labels[value],
-        key=f"{key_prefix}_choose",
-    )
-    batch = next(row for row in filtered if row["id"] == chosen)
-    _batch_actions(batch, key_prefix=f"{key_prefix}_action")
 
 
 def _render_candidates(workspace: WorkspaceService, candidates: list[dict[str, Any]], *, project_id: str) -> None:
@@ -647,13 +586,40 @@ def _render_refresh_summary() -> None:
                 st.warning("达到扫描上限，本次为部分结果；可提高上限后重试。")
 
 
+def _render_daily_summary(rows: list[dict[str, Any]]) -> None:
+    today = today_str()
+    include_all = st.checkbox("包含非今日批次", value=False, key="ws_summary_all")
+    scoped = (
+        rows
+        if include_all
+        else [
+            row
+            for row in rows
+            if row.get("submit_date") == today
+            or str(row.get("last_activity") or "").startswith(today)
+        ]
+    )
+    text = daily_summary(scoped, date=today)
+    st.code(text, language="text")
+    frame = pd.DataFrame(summary_rows(scoped))
+    st.download_button(
+        "⬇️ 下载摘要 CSV",
+        frame.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"验收日报_{today}.csv",
+        mime="text/csv",
+        use_container_width=True,
+        key="ws_summary_download",
+    )
+    st.caption("复制上面文本粘贴到飞书表格即可；本工具不联网，也不会修改任何源文件。")
+
+
 def render_workbench(service: BatchService, workspace: WorkspaceService | None = None) -> None:
     if workspace is None:
         workspace = WorkspaceService()
     st.title("🏠 数据验收工作台")
     st.caption(
-        "打开即看已配置业务目录中的批次。工作台只查询管理数据库；"
-        "只有点击刷新时才扫描网络目录，且不修改任何源图片/TXT/CSV。"
+        "路径只配置一次。打开工作台只读数据库；只有点刷新才扫描网络目录，"
+        "且不修改任何源图片/TXT/CSV。"
     )
     if _render_refresh_runner():
         return
@@ -666,7 +632,7 @@ def render_workbench(service: BatchService, workspace: WorkspaceService | None =
     options = {item.id: f"{item.project_name}（{'启用' if item.enabled else '停用'}）" for item in projects}
     default = st.session_state.get("ws_project_id")
     if default not in options:
-        default = (enabled[0].id if enabled else projects[0].id)
+        default = enabled[0].id if enabled else projects[0].id
     project_id = st.selectbox(
         "项目",
         options=list(options.keys()),
@@ -676,35 +642,36 @@ def render_workbench(service: BatchService, workspace: WorkspaceService | None =
     )
     project = next(item for item in projects if item.id == project_id)
     if not project.enabled:
-        st.warning("该项目目录已停用。历史批次仍保留，可在管理设置中重新启用。")
+        st.warning("该项目目录已停用。历史批次仍保留，可在设置中重新启用。")
         if st.button("启用该项目", use_container_width=True, key="ws_enable_project"):
             workspace.projects.set_enabled(project.id, True)
             st.rerun()
         return
 
-    st.caption(
-        f"待验：`{project.pending_path or '未配置'}` · "
-        f"申请终验：`{project.final_path or '未配置'}` · "
-        f"最近刷新：{_fmt_time(project.last_scan_at) or '尚未刷新'}"
-    )
-    operator = st.text_input(
+    op_col, b1, b2, b3, b4 = st.columns([2, 1, 1, 1, 1])
+    operator = op_col.text_input(
         "操作员",
         value=st.session_state.get("operator_name", ""),
         key="ws_operator",
         label_visibility="collapsed",
         placeholder="操作员（可选）",
     )
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
-    if c1.button("刷新待验目录", type="primary", use_container_width=True, key="ws_refresh_pending"):
+    if b1.button("刷新待验", type="primary", use_container_width=True, key="ws_refresh_pending"):
         _start_refresh(workspace, project.id, (SOURCE_PENDING,), operator.strip())
-    if c2.button("刷新申请终验", type="primary", use_container_width=True, key="ws_refresh_final"):
+    if b2.button("刷新终验", type="primary", use_container_width=True, key="ws_refresh_final"):
         _start_refresh(workspace, project.id, (SOURCE_FINAL,), operator.strip())
-    if c3.button("全部刷新", type="primary", use_container_width=True, key="ws_refresh_all"):
+    if b3.button("全部刷新", use_container_width=True, key="ws_refresh_all"):
         _start_refresh(workspace, project.id, (SOURCE_PENDING, SOURCE_FINAL), operator.strip())
-    if c4.button("打开管理设置（新增/修改项目）", use_container_width=True, key="ws_open_settings"):
+    if b4.button("目录设置", use_container_width=True, key="ws_open_settings"):
         _go("settings")
 
     _render_refresh_summary()
+    with st.expander("📁 目录与刷新信息", expanded=False):
+        st.write(f"待验数据：`{project.pending_path or '未配置'}`")
+        st.write(f"申请终验：`{project.final_path or '未配置'}`")
+        st.write(f"最近刷新：{_fmt_time(project.last_scan_at) or '尚未刷新'}")
+        st.caption("页面加载不扫描网络目录。断网时保留历史批次，只提示访问失败。")
+
     dashboard = BatchDashboard(service.db)
     try:
         rows = dashboard.batches()
@@ -719,45 +686,69 @@ def render_workbench(service: BatchService, workspace: WorkspaceService | None =
         and (not row.get("source_root_id") or row.get("source_root_id") == project.id)
     ]
     legacy_rows = [row for row in rows if row.get("source_type") not in (SOURCE_PENDING, SOURCE_FINAL)]
-    all_rows = [*project_rows, *legacy_rows]
-    totals = BatchDashboard.workspace_totals(project_rows, candidates)
-    metrics = st.columns(6)
-    metrics[0].metric("待验批次", totals["pending_batches"])
-    metrics[1].metric("申请终验批次", totals["final_batches"])
-    metrics[2].metric("待格式检查", totals["format_pending"])
-    metrics[3].metric("待翻译", totals["translation_pending"])
-    metrics[4].metric("待正式验收", totals["acceptance_pending"])
-    metrics[5].metric("存在异常", totals["anomaly_batches"])
-    if totals["unconfirmed"]:
-        st.warning(f"有 {totals['unconfirmed']} 个新发现批次等待确认；不会自动合并到已有批次。")
 
-    tab_pending, tab_final, tab_all, tab_confirm = st.tabs(
-        [
-            f"待验数据（{totals['pending_batches']}）",
-            f"申请终验（{totals['final_batches']}）",
-            "全部批次",
-            f"待确认（{totals['unconfirmed']}）",
-        ]
+    counts = todo_counts(project_rows, len(candidates))
+    today = today_str()
+    done_today = sum(
+        1
+        for row in project_rows
+        if status_word(row) == "已完成" and str(row.get("last_activity") or "").startswith(today)
     )
-    pending_rows = [row for row in project_rows if row.get("source_type") == SOURCE_PENDING]
-    final_rows = [row for row in project_rows if row.get("source_type") == SOURCE_FINAL]
-    with tab_pending:
-        if not pending_rows:
-            st.info("待验目录中还没有已确认批次。请先点击“刷新待验目录”，再到“待确认”确认新批次。")
+    metrics = st.columns(4)
+    metrics[0].metric("待办批次", counts["pending"])
+    metrics[1].metric("进行中", counts["doing"])
+    metrics[2].metric("今日完成", done_today)
+    metrics[3].metric("异常批次", counts["anomaly"])
+    st.caption(
+        f"共 {len(project_rows)} 批 · {counts['task_count']} 组 · {counts['image_count']} 张 · "
+        f"待确认 {len(candidates)} 个"
+    )
+
+    with st.expander("📋 今日飞书摘要", expanded=False):
+        _render_daily_summary(project_rows)
+
+    if candidates:
+        with st.expander(f"🧾 待确认新批次（{len(candidates)}）", expanded=False):
+            st.caption("新批次需要人工确认；不会按名称自动合并到已有批次。")
+            _render_candidates(workspace, candidates, project_id=project.id)
+
+    if not project_rows:
+        st.info("当前项目还没有已确认批次。点上方“刷新待验 / 刷新终验”，再展开“待确认新批次”。")
+    else:
+        scope = st.radio(
+            "范围",
+            ["全部", "待验数据", "申请终验"],
+            horizontal=True,
+            key="ws_source_scope",
+            label_visibility="collapsed",
+        )
+        scoped = {
+            "待验数据": [row for row in project_rows if row.get("source_type") == SOURCE_PENDING],
+            "申请终验": [row for row in project_rows if row.get("source_type") == SOURCE_FINAL],
+            "全部": project_rows,
+        }[scope]
+        filters = _render_workbench_filters(scoped)
+        filtered = wb_filter_rows(scoped, **filters)
+        if not filtered:
+            st.warning("当前筛选条件下没有批次。")
         else:
-            _render_batch_list(pending_rows, key_prefix=f"ws_pending_{project.id}")
-    with tab_final:
-        if not final_rows:
-            st.info("申请终验目录中还没有已确认批次。请先点击“刷新申请终验”，再到“待确认”确认新批次。")
-        else:
-            _render_batch_list(final_rows, key_prefix=f"ws_final_{project.id}")
-    with tab_all:
-        if not all_rows:
-            st.info("当前项目还没有已确认批次。先刷新目录并确认新发现批次。")
-        else:
-            _render_batch_list(all_rows, key_prefix=f"ws_all_{project.id}", show_source=True)
-    with tab_confirm:
-        _render_candidates(workspace, candidates, project_id=project.id)
+            st.caption(f"显示 {len(filtered)} 批；按团队和类目分组。")
+            _render_batch_cards(filtered, key_prefix=f"ws_{project.id}")
+
+    if legacy_rows:
+        with st.expander(f"🗂 历史批次（未接入业务目录，{len(legacy_rows)}）", expanded=False):
+            labels = {
+                row["id"]: f"{row.get('display_id') or ''} | {row.get('name') or ''} | {row.get('team') or ''}"
+                for row in legacy_rows
+            }
+            chosen = st.selectbox(
+                "选择历史批次",
+                options=list(labels.keys()),
+                format_func=lambda value: labels[value],
+                key="ws_legacy_choice",
+            )
+            if st.button("打开历史批次详情", use_container_width=True, key="ws_legacy_open"):
+                _open_batch(str(chosen))
 
 
 # ── 团队与类别 ───────────────────────────────────────────
@@ -1307,6 +1298,105 @@ def _render_source_link_tab(workspace: WorkspaceService, detail: dict[str, Any])
         )
 
 
+def _render_library_export(service: BatchService, batch: dict[str, Any]) -> None:
+    """批次内导出：合格数据复制到库目录 + 飞书摘要，路径可见但不要求粘贴。"""
+    batch_id = str(batch["id"])
+    batch_path = batch.get("batch_path") or batch.get("data_root") or ""
+    db = service.db
+
+    st.markdown("**导出合格数据到库目录**")
+    st.caption(
+        "只复制，不移动源目录；按批次相对业务根目录的层级镜像到库根目录。"
+        "已有层级直接使用，没有则新建；默认不覆盖库中同名数据组。"
+    )
+    current_root = get_library_root(db)
+    root_value = st.text_input(
+        "库根目录",
+        value=current_root,
+        placeholder=r"例如 D:\合格数据库",
+        key=f"detail_lib_root_{batch_id}",
+    )
+    c1, c2 = st.columns([1, 2])
+    if c1.button("保存库根目录", use_container_width=True, key=f"detail_lib_save_{batch_id}"):
+        ok, detail = validate_library_root(root_value, db=db)
+        if not ok:
+            st.error(detail)
+        else:
+            save_library_root(db, detail)
+            st.success(f"已保存库根目录：{detail}")
+            current_root = detail
+
+    source_root = batch.get("source_root_path") or resolve_source_root(db, batch_path)
+    target = ""
+    if root_value.strip() and batch_path:
+        try:
+            target = build_library_target(
+                root_value,
+                batch_path=batch_path,
+                source_root_path=source_root,
+                fallback_name=batch.get("name") or "",
+            )
+            st.caption(f"本次目标：`{target}`")
+        except ValueError as exc:
+            st.warning(str(exc))
+    else:
+        st.caption("填写库根目录后显示本次目标路径。")
+
+    groups = qualified_groups(db, batch_id)
+    if groups:
+        st.caption(f"数据库中的合格数据组：{len(groups)} 组（按每组最新验收记录判定）")
+    else:
+        st.info("数据库暂无合格数据。请先在“验收记录”导入记录，或在正式质检页导出。")
+    confirm = st.checkbox(
+        "我确认复制合格数据（不移动、不删除源目录）",
+        value=False,
+        key=f"detail_lib_confirm_{batch_id}",
+    )
+    overwrite = st.checkbox(
+        "覆盖库中已存在的同名数据组",
+        value=False,
+        key=f"detail_lib_overwrite_{batch_id}",
+    )
+    if st.button(
+        "📚 导出合格数据到库目录",
+        type="primary",
+        use_container_width=True,
+        disabled=not (groups and target and confirm),
+        key=f"detail_lib_export_{batch_id}",
+    ):
+        with st.status("正在导出合格数据…", expanded=True) as status:
+            def on_progress(done: int, total: int, message: str) -> None:
+                status.update(label=f"{message}（{done}/{total}）")
+
+            result = export_qualified_groups(
+                groups,
+                target,
+                overwrite=overwrite,
+                progress=on_progress,
+            )
+            status.update(
+                label="导出完成" if result.ok else "导出完成，但有异常",
+                state="complete" if result.ok else "error",
+            )
+        st.session_state[f"_lib_result_{batch_id}"] = result
+        st.rerun()
+
+    result = st.session_state.get(f"_lib_result_{batch_id}")
+    if result is not None:
+        if result.ok:
+            st.success(result.message())
+        else:
+            st.warning(result.message())
+        if result.errors:
+            st.code("\n".join(result.errors), language="text")
+
+    st.divider()
+    st.markdown("**飞书摘要**")
+    summary = daily_summary([batch], date=batch.get("submit_date") or today_str())
+    st.code(summary, language="text")
+    st.caption("复制上面一行粘贴到飞书表格即可；本工具不联网。")
+
+
 def render_batch_detail(service: BatchService, workspace: WorkspaceService | None = None) -> None:
     if workspace is None:
         workspace = WorkspaceService()
@@ -1332,59 +1422,67 @@ def render_batch_detail(service: BatchService, workspace: WorkspaceService | Non
         st.warning("批次不存在或已被删除。")
         return
     batch = detail["batch"]
-    if st.button("← 返回数据验收工作台", key="mgmt_detail_back"):
+    if st.button("← 返回工作台", key="mgmt_detail_back"):
         _go("workbench")
+
     st.title(f"📦 {batch.get('name') or batch.get('id')}")
     st.caption(
         f"{batch.get('display_id') or ''} · {batch.get('source_label')} · "
         f"项目 {batch.get('project_name') or batch.get('project') or '未填写'} · "
         f"团队 {batch.get('team') or '未指定'} · "
-        f"一级 {batch.get('category_l1') or '未分类'} / 二级 {batch.get('category_l2') or '未分类'} · "
+        f"{batch.get('category_l1') or '未分类'} / {batch.get('category_l2') or '未分类'} · "
         f"日期 {batch.get('submit_date') or '未填写'}"
     )
+
+    action, action_label = next_action(batch)
+    total = int(batch.get("task_count") or 0)
+    accepted = int(batch.get("accepted_records") or 0)
+    action_col, record_col, note_col = st.columns([1, 1, 3])
+    if action_col.button(
+        action_label,
+        type="primary",
+        use_container_width=True,
+        key="detail_primary_action",
+    ):
+        _run_batch_action(batch, action, key_prefix="detail")
+    if record_col.button("验收记录", use_container_width=True, key="detail_records_open"):
+        st.session_state["ri_batch"] = batch_id
+        _go("record_import")
+    note_col.caption(f"{status_word(batch)} · {progress_text(batch)}")
+    st.progress(min(1.0, accepted / total) if total else 0.0)
+
     _metric_row(
         [
-            ("数据量", batch.get("task_count", 0), "数据组数量"),
+            ("数据量", total, "数据组数量"),
             ("图片数", batch.get("image_count", 0), "扫描得到"),
+            ("已验收", accepted, "已导入验收记录"),
             ("合格", batch.get("accepted_qualified", 0), "已导入验收记录"),
             ("不合格", batch.get("accepted_rejected", 0), "已导入验收记录"),
             ("剩余", batch.get("remaining_count", 0), "批次统计"),
-            ("归档", batch.get("archived_groups", 0), "已校验/跳过数据组"),
         ]
     )
-    st.caption(
-        f"格式：{batch.get('format_state_label') or '未检查'}；"
-        f"翻译：{batch.get('translation_state_label') or '未扫描'}；"
-        f"验收：{batch.get('acceptance_state_label') or '暂无已导入验收记录'}。"
-    )
-    with st.expander("来源目录与路径", expanded=False):
-        st.write(f"项目：{batch.get('project_name') or '未填写'}")
-        st.write(f"业务来源：{batch.get('source_label')}")
-        st.write(f"来源根目录：`{batch.get('source_root_path') or batch.get('data_root') or '未填写'}`")
-        st.write(f"批次目录：`{batch.get('batch_path') or '未填写'}`")
-        st.write(f"相对路径：`{batch.get('relative_path') or '未填写'}`")
-        if batch.get("identity"):
-            st.markdown("**提交身份信息（原始）**")
-            st.json(batch["identity"])
-    _batch_actions(batch, key_prefix="detail", compact=True)
-    _render_batch_actions(service, batch)
 
-    st.subheader("处理进度")
-    st.dataframe(_stage_frame(detail), use_container_width=True, hide_index=True)
+    with st.expander("📤 导出与完成本批", expanded=False):
+        _render_library_export(service, batch)
 
-    tab_overview, tab_format, tab_translation, tab_acceptance, tab_archive, tab_source, tab_groups = st.tabs(
-        ["概览", "格式检查", "翻译预审", "验收记录", "合格归档", "来源关联", "数据组"]
-    )
-    with tab_overview:
-        st.markdown("**状态说明**")
+    tab_progress, tab_acceptance, tab_advanced = st.tabs(["进度", "验收记录", "高级"])
+    with tab_progress:
+        st.dataframe(_stage_frame(detail), use_container_width=True, hide_index=True)
         if not batch.get("accepted_records"):
             st.info("暂无已导入验收记录；系统不会把“没有导出表”判断为验收未开始。")
         st.write(f"最近活动：{_fmt_time(batch.get('last_activity')) or '无'}")
-        st.write(
-            f"格式最近时间：{_fmt_time(batch.get('format_last_time')) or '未检查'}；"
-            f"翻译最近时间：{_fmt_time(batch.get('translation_last_time')) or '未翻译'}"
-        )
         st.write(f"供应商：{batch.get('supplier') or '未填写'}")
+        st.write(f"格式最近时间：{_fmt_time(batch.get('format_last_time')) or '未检查'}")
+        st.write(f"翻译最近时间：{_fmt_time(batch.get('translation_last_time')) or '未翻译'}")
+        with st.expander("来源目录与路径", expanded=False):
+            st.write(f"项目：{batch.get('project_name') or '未填写'}")
+            st.write(f"业务来源：{batch.get('source_label')}")
+            st.write(f"来源根目录：`{batch.get('source_root_path') or batch.get('data_root') or '未填写'}`")
+            st.write(f"批次目录：`{batch.get('batch_path') or '未填写'}`")
+            st.write(f"相对路径：`{batch.get('relative_path') or '未填写'}`")
+            if batch.get("identity"):
+                st.markdown("**提交身份信息（原始）**")
+                st.json(batch["identity"])
         if detail["sub_batches"]:
             st.markdown("**子批次**")
             st.dataframe(
@@ -1421,36 +1519,39 @@ def render_batch_detail(service: BatchService, workspace: WorkspaceService | Non
                 use_container_width=True,
                 hide_index=True,
             )
-    with tab_format:
-        _render_format_tab(detail)
-    with tab_translation:
-        _render_translation_tab(detail)
     with tab_acceptance:
         _render_acceptance_tab(detail)
-    with tab_archive:
-        _render_archive_tab(detail)
-    with tab_source:
-        _render_source_link_tab(workspace, detail)
-    with tab_groups:
-        if detail["groups"]:
-            st.caption(f"共 {len(detail['groups'])} 个数据组；只显示索引，不加载图片。")
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {
-                            "任务ID": item.get("task_id") or "",
-                            "验收员": item.get("user_name") or "",
-                            "图片": item.get("image_count", 0),
-                            "TXT": item.get("txt_count", 0),
-                            "文件": item.get("file_count", 0),
-                            "状态": status_label(item.get("status")),
-                            "路径": item.get("normalized_path") or "",
-                        }
-                        for item in detail["groups"]
-                    ]
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("该批次没有数据组。")
+    with tab_advanced:
+        with st.expander("🔎 格式检查", expanded=False):
+            _render_format_tab(detail)
+        with st.expander("🌐 翻译预审", expanded=False):
+            _render_translation_tab(detail)
+        with st.expander("🗄️ 合格归档（哈希校验）", expanded=False):
+            _render_archive_tab(detail)
+        with st.expander("🔗 来源关联", expanded=False):
+            _render_source_link_tab(workspace, detail)
+        with st.expander("🧩 数据组", expanded=False):
+            if detail["groups"]:
+                st.caption(f"共 {len(detail['groups'])} 个数据组；只显示索引，不加载图片。")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "任务ID": item.get("task_id") or "",
+                                "验收员": item.get("user_name") or "",
+                                "图片": item.get("image_count", 0),
+                                "TXT": item.get("txt_count", 0),
+                                "文件": item.get("file_count", 0),
+                                "状态": status_label(item.get("status")),
+                                "路径": item.get("normalized_path") or "",
+                            }
+                            for item in detail["groups"]
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("该批次没有数据组。")
+        with st.expander("⚙️ 批次状态操作", expanded=False):
+            _render_batch_actions(service, batch)

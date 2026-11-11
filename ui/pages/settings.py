@@ -11,6 +11,7 @@ from modules.config import app_config
 from modules.database.backup import backup_database, list_backups, verify_database
 from modules.database.connection import Database
 from modules.database.repositories import recent_operation_logs, recent_scan_runs
+from modules.export_library import get_library_root, save_library_root, validate_library_root
 from modules.scanning.service import ScanService
 from modules.workspace.models import DEFAULT_FINAL_DIR, DEFAULT_PENDING_DIR
 from modules.workspace.service import WorkspaceService
@@ -26,7 +27,7 @@ def _human_size(size: int) -> str:
 
 
 def render() -> None:
-    st.title("⚙️ 管理设置（1.25.8）")
+    st.title("⚙️ 管理设置")
     st.caption("管理数据库只存路径、状态和日志，不存图片/TXT/CSV 原文。")
 
     paths = app_config.describe_paths()
@@ -193,6 +194,47 @@ def render() -> None:
     finally:
         if workspace is not None:
             workspace.close()
+
+    st.divider()
+    st.subheader("输出库目录（合格数据）")
+    st.caption(
+        "合格数据导出到独立库根目录，按批次相对业务根目录的层级镜像（如 大类/团队/日期/批次）。"
+        "已有目录直接使用，没有则新建；只复制，不移动源目录。Excel 记录仍保存在质检记录目录。"
+    )
+    lib_db = Database(app_config.get_db_path())
+    try:
+        try:
+            lib_db.migrate()
+        except Exception:
+            pass
+        library_root = get_library_root(lib_db)
+        library_value = st.text_input(
+            "库根目录",
+            value=library_root,
+            placeholder=r"例如 D:\合格数据库",
+            key="settings_library_root",
+        )
+        c1, c2 = st.columns(2)
+        if c1.button("保存库根目录", type="primary", use_container_width=True, key="settings_library_save"):
+            ok, detail = validate_library_root(library_value, db=lib_db)
+            if not ok:
+                st.error(detail)
+            else:
+                saved = save_library_root(lib_db, detail)
+                st.success(f"已保存：{saved}")
+        if c2.button("创建 / 检查目录", use_container_width=True, key="settings_library_check"):
+            ok, detail = validate_library_root(library_value, db=lib_db)
+            if not ok:
+                st.error(detail)
+            else:
+                try:
+                    os.makedirs(detail, exist_ok=True)
+                    st.success(f"目录可用：{detail}")
+                except OSError as exc:
+                    st.error(f"创建失败：{exc}")
+        st.caption(f"当前库根目录：{library_root or '未配置'}")
+    finally:
+        lib_db.close()
 
     st.divider()
     st.subheader("数据库状态")

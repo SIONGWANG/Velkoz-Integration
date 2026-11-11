@@ -8,19 +8,25 @@ from __future__ import annotations
 
 import streamlit as st
 
-PAGES: tuple[tuple[str, str], ...] = (
-    ("workbench", "🏠 数据验收工作台"),
+# 主入口只保留 4 个；其余保留为“高级工具”，旧深链接仍然可用。
+PRIMARY_PAGES: tuple[tuple[str, str], ...] = (
+    ("workbench", "🏠 验收工作台"),
+    ("record_import", "📥 记录导入"),
+    ("stats", "📊 数据统计"),
+    ("settings", "⚙️ 设置"),
+)
+
+ADVANCED_PAGES: tuple[tuple[str, str], ...] = (
     ("batch_overview", "📦 批次总览"),
     ("team_category", "👥 团队与类别"),
     ("scan", "📂 数据扫描"),
     ("batches", "🧩 候选确认"),
     ("format", "🔎 格式检查"),
     ("precheck", "🌐 翻译预审"),
-    ("record_import", "📥 记录导入"),
     ("archive", "🗄️ 合格归档"),
-    ("stats", "📊 数据统计"),
-    ("settings", "⚙️ 管理设置"),
 )
+
+PAGES: tuple[tuple[str, str], ...] = (*PRIMARY_PAGES, *ADVANCED_PAGES)
 
 PAGE_KEYS = {key for key, _ in PAGES} | {"batch_detail"}
 
@@ -33,8 +39,8 @@ def go(page: str) -> None:
 def _render_sidebar(page: str) -> None:
     with st.sidebar:
         st.markdown("## 🧭 管理中心")
-        st.caption("按批次、团队和类别查看真实数据。")
-        for key, label in PAGES:
+        st.caption("批次、团队、类目都在工作台里；路径只配置一次。")
+        for key, label in PRIMARY_PAGES:
             active = key == page
             if st.button(
                 label,
@@ -43,6 +49,18 @@ def _render_sidebar(page: str) -> None:
                 type="primary" if active else "secondary",
             ):
                 go(key)
+        advanced_active = page in {key for key, _ in ADVANCED_PAGES}
+        with st.expander("🧰 高级工具", expanded=advanced_active):
+            st.caption("单批次操作已收进批次详情；这里保留独立页面入口。")
+            for key, label in ADVANCED_PAGES:
+                active = key == page
+                if st.button(
+                    label,
+                    key=f"mgmt_nav_{key}",
+                    use_container_width=True,
+                    type="primary" if active else "secondary",
+                ):
+                    go(key)
         st.divider()
         if st.button("← 返回正式质检", use_container_width=True, key="mgmt_nav_back"):
             go("acceptance")

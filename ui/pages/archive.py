@@ -29,6 +29,7 @@ from modules.archive.models import (
 )
 from modules.archive.planner import format_tree
 from modules.archive.service import ArchiveService
+from modules.export_library import get_library_root
 
 
 def _fmt_time(value: str | None) -> str:
@@ -214,7 +215,7 @@ def render() -> None:
         col_output, col_layer = st.columns([3, 1])
         output_root = col_output.text_input(
             "输出根目录（必须是本地目录，且不能位于源数据目录内）",
-            value=st.session_state.get("archive_output_root", ""),
+            value=st.session_state.get("archive_output_root", "") or get_library_root(service.db),
             placeholder=r"例如 D:\合格归档",
             key="archive_output_root",
         )

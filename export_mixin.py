@@ -153,7 +153,8 @@ class ExportMixin:
                 else:
                     st.info("请先在左侧 📂 列表 中加载文件夹")
 
-    def export_qualifies_with_check(self, force=False):
+    def export_qualifies_with_check(self, force=False, export_dir=None, overwrite=True):
+        """导出合格数据；overwrite=False 时已有同名组按“一致跳过 / 不同记冲突”处理。"""
         df = self._get_df()
         if df.empty:
             return False, "❌ 找不到 CSV 记录文件", {}
@@ -185,19 +186,20 @@ class ExportMixin:
         id_to_group = {str(g['id']): g for g in st.session_state.data_groups}
 
         raw_path = st.session_state.root_path
-        if not raw_path:
+        if not raw_path and export_dir is None:
             return False, "❌ 未设置原始文件夹路径", {}
 
-        if raw_path.startswith('\\\\'):
-            parent_dir = os.path.dirname(raw_path.rstrip('\\'))
-            if parent_dir == raw_path.rstrip('\\'):
-                parent_dir = os.path.dirname(raw_path)
-        else:
-            parent_dir = os.path.dirname(os.path.normpath(raw_path))
+        if export_dir is None:
+            if raw_path.startswith('\\\\'):
+                parent_dir = os.path.dirname(raw_path.rstrip('\\'))
+                if parent_dir == raw_path.rstrip('\\'):
+                    parent_dir = os.path.dirname(raw_path)
+            else:
+                parent_dir = os.path.dirname(os.path.normpath(raw_path))
 
-        prefix = self.get_output_prefix()
-        total = len(qualified_ids)
-        export_dir = os.path.join(parent_dir, f"{prefix}_合格数据_{total}组")
+            prefix = self.get_output_prefix()
+            total = len(qualified_ids)
+            export_dir = os.path.join(parent_dir, f"{prefix}_合格数据_{total}组")
 
         if not os.path.exists(export_dir):
             os.makedirs(export_dir)
@@ -207,6 +209,8 @@ class ExportMixin:
         error_ids = []
         missing_count = 0
         missing_ids = set()
+        skipped_count = 0
+        conflict_ids: list[str] = []
 
         with st.status("正在导出合格数据...", expanded=True) as export_status:
             for idx, (index, row) in enumerate(qualified_df.iterrows()):
@@ -233,6 +237,15 @@ class ExportMixin:
 
                 try:
                     dst_path = os.path.join(export_dir, folder_id)
+                    if os.path.exists(dst_path) and not overwrite:
+                        ignored_lower = {'thumbs.db', 'desktop.ini', '.ds_store'}
+                        src_norm = {f.lower() for f in os.listdir(src_path)} - ignored_lower
+                        dst_norm = {f.lower() for f in os.listdir(dst_path)} - ignored_lower
+                        if src_norm == dst_norm:
+                            skipped_count += 1
+                        else:
+                            conflict_ids.append(folder_id)
+                        continue
                     if os.path.exists(dst_path):
                         shutil.rmtree(dst_path)
                     shutil.copytree(src_path, dst_path, ignore=shutil.ignore_patterns('Thumbs.db', 'desktop.ini', '.DS_Store'))
@@ -254,27 +267,82 @@ class ExportMixin:
                 except Exception as e:
                     error_ids.append(f"{folder_id}({str(e)})")
 
+            parts = [f"✅ {success_count} 条"]
+            if skipped_count:
+                parts.append(f"已存在跳过 {skipped_count} 条")
+            if conflict_ids:
+                parts.append(f"内容不同未覆盖 {len(conflict_ids)} 条")
+            if missing_count:
+                parts.append(f"源文件夹不存在 {missing_count} 条")
             if error_ids:
                 export_status.update(label=f"⚠️ 导出完成，{len(error_ids)} 个异常", state="error")
-            elif missing_count:
-                export_status.update(label=f"⚠️ 导出完成，{missing_count} 个源文件夹不存在", state="complete")
+            elif conflict_ids or missing_count or skipped_count:
+                export_status.update(label="⚠️ 导出完成：" + "，".join(parts), state="complete")
             else:
                 export_status.update(label=f"✅ 导出完成！共 {success_count} 条", state="complete")
+
+        extra_notes = ""
+        if skipped_count:
+            extra_notes += f"\nℹ️ 库中已有同名数据组且内容一致，已跳过 {skipped_count} 条"
+        if conflict_ids:
+            extra_notes += (
+                f"\n⚠️ {len(conflict_ids)} 个同名数据组内容不同，未覆盖："
+                + ", ".join(conflict_ids)
+                + "\n如需刷新，请勾选“覆盖库中已存在的同名数据组”后重试。"
+            )
 
         if error_ids:
             msg = f"⚠️ 导出完成，但有 {len(error_ids)} 个文件夹复制失败：\n" + ", ".join(error_ids)
             if missing_count:
                 msg += f"\n⚠️ 另有 {missing_count} 个源文件夹不存在（可能已移动或删除）"
-            return True, msg, {"export_dir": export_dir}
+            return True, msg + extra_notes, {"export_dir": export_dir}
 
-        verify_result = self.verify_exported_data(qualified_ids - missing_ids, export_dir)
+        verify_result = self.verify_exported_data(
+            qualified_ids - missing_ids - set(conflict_ids), export_dir
+        )
 
         missing_msg = f"\n⚠️ {missing_count} 个源文件夹不存在（可能已移动或删除）" if missing_count else ""
 
         if verify_result["success"]:
-            return True, f"✅ 导出成功：{success_count} 条{missing_msg}\n{verify_result['message']}", {"export_dir": export_dir}
+            return True, f"✅ 导出成功：{success_count} 条{missing_msg}\n{verify_result['message']}{extra_notes}", {"export_dir": export_dir}
         else:
-            return True, f"⚠️ 导出成功，但验券失败：{missing_msg}\n{verify_result['message']}", {"export_dir": export_dir}
+            return True, f"⚠️ 导出成功，但验券失败：{missing_msg}\n{verify_result['message']}{extra_notes}", {"export_dir": export_dir}
+
+    def library_export_target(self):
+        """返回 (目标目录, 库根目录, 错误说明)。只读配置，不创建目录。"""
+        from modules.config import app_config
+        from modules.database.connection import open_database
+        from modules.export_library import build_library_target, get_library_root, resolve_source_root
+
+        raw_path = st.session_state.get("root_path", "")
+        db = open_database(app_config.get_db_path())
+        try:
+            library_root = get_library_root(db)
+            if not library_root:
+                return "", "", "尚未配置库根目录，请先到管理设置中填写"
+            if not raw_path:
+                return "", library_root, "尚未加载批次目录"
+            source_root = resolve_source_root(db, raw_path)
+            target = build_library_target(
+                library_root,
+                batch_path=raw_path,
+                source_root_path=source_root,
+            )
+            return target, library_root, ""
+        except Exception as exc:
+            return "", "", str(exc)
+        finally:
+            db.close()
+
+    def export_qualified_to_library(self, overwrite=False):
+        """把当前合格数据复制到库目录（保持批次层级），源目录不动。
+
+        默认不覆盖库中同名数据组：内容一致跳过，内容不同记为冲突。
+        """
+        target, _library_root, error = self.library_export_target()
+        if error:
+            return False, f"❌ {error}", {}
+        return self.export_qualifies_with_check(force=True, export_dir=target, overwrite=overwrite)
 
     def verify_exported_data(self, expected_ids=None, export_dir=None):
         if export_dir is None:
@@ -496,6 +564,40 @@ class ExportMixin:
                         else:
                             st.session_state._export_result = {'success': False, 'msg': msg}
                         st.rerun()
+
+        # ── 导出到库目录（保持批次层级，源目录不动）──
+        st.divider()
+        st.caption("📚 导出到库目录（保持层级）")
+        target, _library_root, error = self.library_export_target()
+        if error:
+            st.caption(f"⚠️ {error}")
+            if st.button("⚙️ 去设置库目录", use_container_width=True, key="export_open_library_settings"):
+                st.session_state["nav_page"] = "settings"
+                st.rerun()
+        else:
+            st.caption(f"目标：`{target}`")
+            lib_overwrite = st.checkbox(
+                "覆盖库中已存在的同名数据组",
+                value=False,
+                key="export_library_overwrite",
+                help="默认不覆盖：内容一致跳过，内容不同记为冲突；只有勾选后才会替换库中同名数据组。",
+            )
+            if st.button("📚 导出合格数据到库目录", use_container_width=True, key="export_to_library_btn"):
+                if not st.session_state.data_groups:
+                    st.error("请先加载数据源！")
+                else:
+                    success, msg, result = self.export_qualified_to_library(overwrite=lib_overwrite)
+                    if success:
+                        st.session_state._export_result = {
+                            'success': True,
+                            'msg': msg,
+                            'export_dir': result.get('export_dir', ''),
+                        }
+                        st.balloons()
+                        on_export_complete()
+                    else:
+                        st.session_state._export_result = {'success': False, 'msg': msg}
+                    st.rerun()
 
         # ── 一键归集 ──
         if st.button("⚠️ 一键归集不合格/待定", use_container_width=True):
