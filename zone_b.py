@@ -387,9 +387,11 @@ class ZoneBMixin:
 
         images = group['images']
         if st.session_state.view_mode == "四宫格":
-            r1 = st.columns(2); r2 = st.columns(2) if len(images)>2 else []
+            # 按每行 2 张动态生成，兼容 1~N 张图片；超过 4 张时继续向下排列，
+            # 不再假定固定只有 2 行（旧实现 i>=4 会索引越界）。
+            rows = [st.columns(2) for _ in range((len(images) + 1) // 2)]
             for i, img in enumerate(images):
-                tgt = r1[i] if i<2 else r2[i-2]
+                tgt = rows[i // 2][i % 2]
                 with tgt:
                     p = os.path.join(group['root'], img)
                     img_bytes, res = get_display_image_bytes(p)
