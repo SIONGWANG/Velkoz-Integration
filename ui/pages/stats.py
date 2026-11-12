@@ -27,6 +27,11 @@ from modules.stats.models import (
     StatsFilters,
 )
 from modules.stats.service import StatsService
+from modules.config import app_config
+from modules.database.connection import open_database
+from modules.workspace import catalog_stats
+from modules.workspace.models import SOURCE_FINAL, SOURCE_PENDING
+from ui.pages.catalog_workbench import _projects
 
 _PRESETS = ("全部", "今天", "最近 7 天", "最近 30 天", "本月", "自定义")
 
@@ -482,6 +487,152 @@ def _export_tab(service: StatsService, filters: StatsFilters) -> None:
         )
 
 
+def _catalog_tab() -> None:
+    st.subheader("批次统计（管理中心）")
+    st.caption(
+        "数据来自 catalog_* 表：批次数、数据量、合格/不合格/未覆盖，按大类、小类、三级类、团队汇总。"
+    )
+    db = open_database(app_config.get_db_path())
+    try:
+        projects = _projects(db)
+        if not projects:
+            st.info("还没有业务目录，先去设置页添加项目。")
+            return
+        options = {str(item["id"]): item for item in projects}
+        labels = {
+            str(item["id"]): f"{item['project_name']}{'（已停用）' if not item['enabled'] else ''}"
+            for item in projects
+        }
+        c1, c2, c3 = st.columns([1.4, 1.4, 2])
+        project_id = c1.selectbox(
+            "项目",
+            list(options),
+            format_func=lambda value: labels[value],
+            key="catalog_stats_project",
+        )
+        source_label = c2.radio(
+            "来源",
+            ["全部", "待验数据", "申请终验"],
+            horizontal=True,
+            key="catalog_stats_source",
+            label_visibility="collapsed",
+        )
+        source_type = {
+            "全部": "",
+            "待验数据": SOURCE_PENDING,
+            "申请终验": SOURCE_FINAL,
+        }[source_label]
+        overview = catalog_stats.overview(db, project_id, source_type)
+        c3.caption(
+            f"口径：批次 {overview['batches']} · 数据 {overview['data']} · "
+            f"已完成批次 {overview['completed_batches']}"
+        )
+        m = st.columns([1, 1, 1, 1, 1, 1])
+        m[0].metric("批次", overview["batches"])
+        m[1].metric("数据量", overview["data"])
+        m[2].metric("合格", overview["qualified"])
+        m[3].metric("不合格", overview["rejected"])
+        m[4].metric("未覆盖", overview["pending"])
+        m[5].metric("合格率", f"{overview['qualified_rate']}%")
+
+        status_rows = [
+            {"结果": "合格", "数量": overview["qualified"]},
+            {"结果": "不合格", "数量": overview["rejected"]},
+            {"结果": "未覆盖", "数量": overview["pending"]},
+        ]
+        st.markdown("**合格情况**")
+        st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+
+        for level, label in ((1, "大类"), (2, "小类"), (3, "三级类")):
+            rows = catalog_stats.by_level(db, level, project_id, source_type)
+            if not rows:
+                continue
+            frame = pd.DataFrame(
+                [
+                    {
+                        label: row["name"],
+                        "批次": row["batches"],
+                        "数据量": row["data"],
+                        "合格": row["qualified"],
+                        "不合格": row["rejected"],
+                        "未覆盖": row["pending"],
+                        "合格率": (
+                            f"{row['qualified'] / row['data'] * 100:.1f}%"
+                            if row["data"]
+                            else "0.0%"
+                        ),
+                    }
+                    for row in rows
+                ]
+            )
+            st.markdown(f"**按{label}**")
+            st.dataframe(frame, use_container_width=True, hide_index=True)
+
+        team_rows = catalog_stats.by_team(db, project_id, source_type)
+        if team_rows:
+            st.markdown("**按团队**")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "团队": row["name"],
+                            "批次": row["batches"],
+                            "数据量": row["data"],
+                            "合格": row["qualified"],
+                            "不合格": row["rejected"],
+                            "未覆盖": row["pending"],
+                        }
+                        for row in team_rows
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        format_labels = {
+            "not_checked": "未检查",
+            "checked": "已检查",
+            "failed": "检查失败",
+        }
+        translation_labels = {
+            "not_translated": "未翻译",
+            "translated": "已翻译",
+            "translation_failed": "翻译失败",
+        }
+        with st.expander("检查与翻译状态分布", expanded=False):
+            c4, c5 = st.columns(2)
+            c4.markdown("**格式检查**")
+            c4.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "状态": format_labels.get(key, key),
+                            "批次": value,
+                        }
+                        for key, value in overview["format_counts"].items()
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            c5.markdown("**翻译**")
+            c5.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "状态": translation_labels.get(key, key),
+                            "批次": value,
+                        }
+                        for key, value in overview["translation_counts"].items()
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+    finally:
+        db.close()
+
+
 def render() -> None:
     st.title("📊 数据统计（1.25.7）")
     st.caption(
@@ -499,18 +650,30 @@ def render() -> None:
         filters = _filters_ui(service)
         if filters is None:
             return
-        tabs = st.tabs(["总览与批次", "人员统计", "错误与标签", "日报", "可追溯明细", "Excel 导出"])
+        tabs = st.tabs(
+            [
+                "批次统计",
+                "总览与批次",
+                "人员统计",
+                "错误与标签",
+                "日报",
+                "可追溯明细",
+                "Excel 导出",
+            ]
+        )
         with tabs[0]:
-            _overview_tab(service, filters)
+            _catalog_tab()
         with tabs[1]:
-            _operator_tab(service, filters)
+            _overview_tab(service, filters)
         with tabs[2]:
-            _error_tag_tab(service, filters)
+            _operator_tab(service, filters)
         with tabs[3]:
-            _daily_tab(service, filters)
+            _error_tag_tab(service, filters)
         with tabs[4]:
-            _trace_tab(service, filters)
+            _daily_tab(service, filters)
         with tabs[5]:
+            _trace_tab(service, filters)
+        with tabs[6]:
             _export_tab(service, filters)
     finally:
         service.close()

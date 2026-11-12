@@ -112,7 +112,7 @@ class TestSchemaAndParser(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = open_database(Path(tmp) / "management.db")
             try:
-                self.assertEqual(db.schema_version(), 8)
+                self.assertGreaterEqual(db.schema_version(), 8)
                 tables = {
                     row["name"]
                     for row in db.connect().execute(

@@ -38,7 +38,7 @@ from modules.workbench_view import (  # noqa: E402
     status_word,
     todo_counts,
 )
-from ui.router import ADVANCED_PAGES, PAGE_KEYS, PRIMARY_PAGES  # noqa: E402
+from ui.router import ADVANCED_PAGES, HIDDEN_PAGES, PAGE_KEYS, PRIMARY_PAGES  # noqa: E402
 
 
 def _write(path: Path) -> None:
@@ -370,12 +370,30 @@ class TestNavigation(unittest.TestCase):
     def test_primary_and_advanced_pages(self):
         self.assertEqual(
             {key for key, _ in PRIMARY_PAGES},
-            {"workbench", "record_import", "stats", "settings"},
+            {"workbench", "catalog_query", "record_import", "stats", "settings"},
         )
         advanced = {key for key, _ in ADVANCED_PAGES}
-        self.assertIn("format", advanced)
-        self.assertIn("precheck", advanced)
-        self.assertTrue({"workbench", "batch_detail", "format", "precheck", "archive", "stats"} <= PAGE_KEYS)
+        self.assertTrue(
+            {"catalog_sync", "catalog_format", "catalog_translation", "archive"} <= advanced
+        )
+        self.assertNotIn("format", advanced)
+        self.assertNotIn("precheck", advanced)
+        hidden = {key for key, _ in HIDDEN_PAGES}
+        self.assertTrue({"format", "precheck", "scan", "batches"} <= hidden)
+        self.assertTrue(
+            {
+                "workbench",
+                "batch_detail",
+                "format",
+                "precheck",
+                "archive",
+                "stats",
+                "catalog_query",
+                "catalog_format",
+                "catalog_translation",
+            }
+            <= PAGE_KEYS
+        )
 
 
 if __name__ == "__main__":

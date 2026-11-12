@@ -15,6 +15,7 @@ from modules.export_library import get_library_root, save_library_root, validate
 from modules.scanning.service import ScanService
 from modules.workspace.models import DEFAULT_FINAL_DIR, DEFAULT_PENDING_DIR
 from modules.workspace.service import WorkspaceService
+from ui.pages import catalog_settings
 
 
 def _human_size(size: int) -> str:
@@ -235,6 +236,9 @@ def render() -> None:
         st.caption(f"当前库根目录：{library_root or '未配置'}")
     finally:
         lib_db.close()
+
+    st.divider()
+    catalog_settings.render()
 
     st.divider()
     st.subheader("数据库状态")
