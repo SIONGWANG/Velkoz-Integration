@@ -19,6 +19,10 @@ from modules.workspace.path_schema import BatchInfo, detect_batches
 
 IGNORE_KEY = "catalog_ignore_patterns"
 
+# 02-待验数据 里回流的“合格数据”导出目录不是待验批次，自动忽略。
+# 03-申请终验 本身就是合格数据批次，不能套用这条规则。
+PENDING_IGNORE_KEYWORDS = ("合格数据",)
+
 MAIN_NEW = "new"
 MAIN_COMPLETED = "completed"
 MAIN_LABELS = {MAIN_NEW: "新提交", MAIN_COMPLETED: "已完成"}
@@ -50,6 +54,13 @@ QUEUE_SKIPPED = "skipped"
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
+
+
+def default_ignore_patterns(source_type: str) -> tuple[str, ...]:
+    """内置忽略规则：只对 02-待验数据 生效。"""
+    if str(source_type) == SOURCE_PENDING:
+        return PENDING_IGNORE_KEYWORDS
+    return ()
 
 
 def _as_bool(value: Any) -> bool:
@@ -284,6 +295,9 @@ class CatalogService:
         teams, team_canonical = self._tag_maps(self.teams())
         reviewers, reviewer_canonical = self._tag_maps(self.reviewers())
         categories = self.category_levels()
+        ignore_patterns = list(
+            dict.fromkeys([*self.ignore_patterns(), *default_ignore_patterns(source_type)])
+        )
         batches = detect_batches(
             root,
             max_depth=max_depth,
@@ -292,7 +306,7 @@ class CatalogService:
             team_names=teams.keys(),
             category_names=categories.keys(),
             category_levels=categories,
-            ignore_patterns=self.ignore_patterns(),
+            ignore_patterns=ignore_patterns,
         )
         conn = self.db.connect()
         seen_ids: list[str] = []

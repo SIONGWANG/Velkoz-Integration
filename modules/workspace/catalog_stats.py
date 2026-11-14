@@ -17,7 +17,7 @@ LEVEL_LABELS = {1: "大类", 2: "小类", 3: "三级类"}
 
 
 def _where(project_id: str = "", source_type: str = "") -> tuple[str, list[Any]]:
-    clauses: list[str] = []
+    clauses: list[str] = ["b.is_active = 1"]
     params: list[Any] = []
     if project_id:
         clauses.append("b.project_id = ?")

@@ -45,7 +45,7 @@ def _locations(db, numbers: list[str]) -> list[dict[str, Any]]:
                b.main_status, b.format_status, b.translation_status
         FROM catalog_groups g
         JOIN catalog_batches b ON b.id = g.batch_id
-        WHERE g.task_id IN ({marks})
+        WHERE g.task_id IN ({marks}) AND b.is_active = 1
         ORDER BY g.task_id, b.name
         """,
         numbers,
@@ -65,7 +65,7 @@ def _record_history(db, numbers: list[str]) -> list[dict[str, Any]]:
                b.source_type
         FROM catalog_records r
         LEFT JOIN catalog_batches b ON b.id = r.batch_id
-        WHERE r.number IN ({marks})
+        WHERE r.number IN ({marks}) AND (b.id IS NULL OR b.is_active = 1)
         ORDER BY r.record_time DESC, r.created_at DESC
         """,
         numbers,
@@ -84,7 +84,7 @@ def _format_history(db, numbers: list[str]) -> list[dict[str, Any]]:
                b.id AS batch_id, b.name AS batch_name
         FROM catalog_format_results fr
         LEFT JOIN catalog_batches b ON b.id = fr.batch_id
-        WHERE fr.number IN ({marks})
+        WHERE fr.number IN ({marks}) AND (b.id IS NULL OR b.is_active = 1)
         ORDER BY fr.created_at DESC
         """,
         numbers,
@@ -102,7 +102,7 @@ def _translation_history(db, numbers: list[str]) -> list[dict[str, Any]]:
                b.id AS batch_id, b.name AS batch_name
         FROM catalog_translation_items ti
         LEFT JOIN catalog_batches b ON b.id = ti.batch_id
-        WHERE ti.number IN ({marks})
+        WHERE ti.number IN ({marks}) AND (b.id IS NULL OR b.is_active = 1)
         ORDER BY ti.created_at DESC
         """,
         numbers,

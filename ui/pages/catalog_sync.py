@@ -37,6 +37,10 @@ def render() -> None:
         "按“大类 / 小类 / 团队 / 日期 / 三级类目 / 批次 / 编号”识别目录，"
         "只写管理数据库，不修改源图片/TXT/CSV。"
     )
+    st.caption(
+        "02-待验数据 中名称含「合格数据」的目录是导出的合格数据，刷新时自动跳过；"
+        "03-申请终验 正常索引。"
+    )
     db = open_database(app_config.get_db_path())
     try:
         service = CatalogService(db)

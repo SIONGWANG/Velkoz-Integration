@@ -329,6 +329,39 @@ class TestCatalogService(unittest.TestCase):
         self.assertEqual(result.batches, 3)
         self.assertNotIn("60", {row["name"] for row in self.service.batches()})
 
+    def test_pending_ignores_qualified_exports_but_final_keeps(self):
+        pending = self.base / "pending_q"
+        _group(
+            pending / "产品背景替换" / "醒醒文化提交" / "1111" / "新标_刘斯畅_20261112_合格数据_44组",
+            "220001",
+        )
+        _group(
+            pending / "产品背景替换" / "醒醒文化提交" / "1111" / "11.11-产品背景替换-159组",
+            "220002",
+        )
+        result = self.service.sync_root(
+            project_id="q", source_type="pending_acceptance", root=str(pending)
+        )
+        self.assertEqual(result.batches, 1)
+        self.assertEqual(
+            {row["name"] for row in self.service.batches("q", "pending_acceptance")},
+            {"11.11-产品背景替换-159组"},
+        )
+
+        final = self.base / "final_q"
+        _group(
+            final / "产品背景替换" / "醒醒文化提交" / "1111" / "新标_刘斯畅_20261112_合格数据_44组",
+            "330001",
+        )
+        result = self.service.sync_root(
+            project_id="q", source_type="final_acceptance", root=str(final)
+        )
+        self.assertEqual(result.batches, 1)
+        self.assertEqual(
+            {row["name"] for row in self.service.batches("q", "final_acceptance")},
+            {"新标_刘斯畅_20261112_合格数据_44组"},
+        )
+
     def test_queue_and_status(self):
         self.service.sync_root(
             project_id="p1",

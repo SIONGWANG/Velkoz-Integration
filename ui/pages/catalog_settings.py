@@ -134,6 +134,10 @@ def render() -> None:
         st.divider()
         st.markdown("**忽略规则**")
         st.caption("每行一个关键词，路径或批次名包含它就跳过，例如：试标数据、60。")
+        st.caption(
+            "内置规则（不可删除）：02-待验数据 中名称含「合格数据」的目录是导出的合格数据，"
+            "不是待验批次，刷新目录时自动跳过；03-申请终验 不受影响。"
+        )
         current = "\n".join(service.ignore_patterns())
         value = st.text_area("忽略关键词", value=current, key="catalog_ignore_text", height=90)
         if st.button("保存忽略规则", key="catalog_ignore_save"):
