@@ -390,10 +390,11 @@ class ImageCanvas(QGraphicsView):
         self._remember_view()
 
     def _remember_view(self):
-        """锁定模式下记住用户手动调整后的视图，窗口尺寸变化时按新视口保持。"""
+        """锁定/同步：把当前视图记到本面板，同步开启时再套用到另一侧。"""
         try:
-            if self._owner.window._lock_view:
-                self.capture_view_state()
+            win = self._owner.window
+            win.remember_view(self._owner)
+            win.sync_zoom_from(self._owner)
         except Exception:
             pass
 
@@ -952,7 +953,13 @@ class ImageViewerWindow(QMainWindow):
         if lock_cfg is None:
             lock_cfg = viewer_config.get_lock_view()
         self._lock_view = bool(lock_cfg)
-        self._locked_state = None
+        # 左右缩放同步：关闭时各看各的，开启后缩放/平移同时作用到两侧
+        sync_cfg = self._cmd.get("sync_zoom")
+        if sync_cfg is None:
+            sync_cfg = viewer_config.get_sync_zoom()
+        self._sync_zoom = bool(sync_cfg)
+        # 每个面板各自记住自己的锁定视图，面板之间不再互相复制
+        self._panel_states = [None, None]
         self._prefetch_targets = None
 
         # 全局（两侧共享）工具/颜色状态
@@ -1030,8 +1037,8 @@ class ImageViewerWindow(QMainWindow):
         if mode not in (viewer_config.LAYOUT_SINGLE, viewer_config.LAYOUT_DUAL):
             mode = viewer_config.DEFAULT_LAYOUT_MODE
         changed = (mode != self._layout_mode)
-        # 在改变分栏几何前先记住当前视图，否则视口变窄/变宽后再采集会偏移
-        self._capture_active_view()
+        # 在改变分栏几何前先记住两侧各自的视图，否则视口变窄/变宽后再采集会偏移
+        self._capture_all_views()
         self._layout_mode = mode
         self._apply_layout_mode()
         if persist:
@@ -1052,32 +1059,78 @@ class ImageViewerWindow(QMainWindow):
     def active_panel(self):
         return self.panels[self.active_side]
 
-    # ── 锁定视图状态 ──
+    # ── 锁定视图状态（每个面板独立） ──
     def state_for_panel(self, panel):
-        """返回该面板本次加载应套用的视图；锁定时以活动面板的实时视图为准。"""
+        """返回该面板本次加载应套用的视图。
+
+        锁定开启时只使用这个面板自己的状态：右侧放大不会因为点了左侧就跳回去，
+        左侧也不会被右侧的缩放覆盖。
+        """
         if not self._lock_view:
             return None
-        if panel.side == self.active_side and panel.canvas.can_load():
+        side = panel.side
+        st = self._panel_states[side]
+        if st is None and panel.canvas.can_load():
             st = panel.canvas.capture_view_state()
-            if st is not None and (getattr(panel.canvas, "_view_dirty", True)
-                                   or self._locked_state is None):
-                # 只有用户手动调整过视图才更新锁定状态；程序套用后即使被滚动范围夹紧，
-                # 也保留原始逻辑视图，避免在宽高比切换后逐次漂移。
-                self._locked_state = st
-                panel.canvas._view_dirty = False
-        return self._locked_state
+            self._panel_states[side] = st
+        return st
 
-    def _capture_active_view(self):
-        """把活动面板当前视图记为锁定状态（切换图片/面板/图片集前调用）。"""
+    def _capture_panel_view(self, panel):
+        """把某面板当前视图记到它自己的锁定槽位。"""
         if not self._lock_view:
             return
-        p = self.active_panel()
-        if p.canvas.can_load():
-            st = p.canvas.capture_view_state()
-            if st is not None and (getattr(p.canvas, "_view_dirty", True)
-                                   or self._locked_state is None):
-                self._locked_state = st
-                p.canvas._view_dirty = False
+        if not panel.canvas.can_load():
+            return
+        st = panel.canvas.capture_view_state()
+        if st is not None and (getattr(panel.canvas, "_view_dirty", True)
+                               or self._panel_states[panel.side] is None):
+            self._panel_states[panel.side] = st
+            panel.canvas._view_dirty = False
+
+    def _capture_active_view(self):
+        """把活动面板当前视图记为它自己的锁定状态。"""
+        self._capture_panel_view(self.active_panel())
+
+    def _capture_all_views(self):
+        """布局/图片集变化前，两侧各自记住自己的视图。"""
+        for p in self.panels:
+            self._capture_panel_view(p)
+
+    def remember_view(self, panel):
+        """画布缩放/平移后回调：锁定开启时更新该面板自己的状态。"""
+        self._capture_panel_view(panel)
+
+    # ── 左右缩放同步 ──
+    def sync_zoom_from(self, panel):
+        """把 panel 的当前视图同步到另一侧（仅在“同步缩放”开启时）。"""
+        if not self._sync_zoom:
+            return
+        if self._layout_mode != viewer_config.LAYOUT_DUAL:
+            return
+        other = self.panels[1 - panel.side]
+        if not panel.canvas.can_load() or not other.canvas.can_load():
+            return
+        state = panel.canvas.capture_view_state()
+        if state is None:
+            return
+        other.canvas.apply_view_state(state)
+        self._panel_states[other.side] = state
+        other.canvas._view_dirty = False
+
+    def _on_sync_zoom_toggled(self, checked):
+        self._sync_zoom = bool(checked)
+        try:
+            viewer_config.save_sync_zoom(self._sync_zoom)
+        except Exception:
+            pass
+        if self._sync_zoom:
+            self.sync_zoom_from(self.active_panel())
+            self.statusBar().showMessage(
+                "🔗 左右缩放已同步：放大/缩小/平移会同时作用于两侧。", 5000)
+        else:
+            self.statusBar().showMessage(
+                "左右缩放已独立：点哪张就只缩放哪张，另一侧保持不变。", 5000)
+        self._update_sync_status()
 
     def update_loader_protection(self):
         if not hasattr(self, "_loader"):
@@ -1093,11 +1146,16 @@ class ImageViewerWindow(QMainWindow):
         except Exception:
             pass
         if self._lock_view:
-            self._capture_active_view()
+            # 两侧各自记住当前视图，之后切换图片/面板互不影响
+            for p in self.panels:
+                p.canvas._view_dirty = True
+            self._capture_all_views()
             self.statusBar().showMessage(
-                "🔒 视图已锁定：切换图片/面板会保持当前缩放区域，直到再次点按解锁。", 6000)
+                "🔒 视图已锁定：左右各自保持自己的缩放区域；点另一侧不会再跳。", 6000)
         else:
-            self._locked_state = None
+            self._panel_states = [None, None]
+            for p in self.panels:
+                p.canvas._resize_state = None
             self.statusBar().showMessage(
                 "视图锁定已关闭：切换图片将恢复为适应窗口。", 4000)
         self._update_lock_status()
@@ -1116,17 +1174,30 @@ class ImageViewerWindow(QMainWindow):
             self.act_lock.blockSignals(True)
             self.act_lock.setChecked(self._lock_view)
             self.act_lock.blockSignals(False)
+        self._update_sync_status()
+
+    def _update_sync_status(self):
+        if not hasattr(self, "status_sync"):
+            return
+        if self._sync_zoom:
+            self.status_sync.setText("🔗 同步缩放")
+            self.status_sync.setStyleSheet(
+                "color:#38bdf8;font-weight:700;padding-right:10px;")
+        else:
+            self.status_sync.setText("")
+        if hasattr(self, "act_sync_zoom"):
+            self.act_sync_zoom.blockSignals(True)
+            self.act_sync_zoom.setChecked(self._sync_zoom)
+            self.act_sync_zoom.blockSignals(False)
 
     def set_active_panel(self, side, force=False):
         if side not in (0, 1):
             return
         if not force and side == self.active_side:
             return
-        target_state = None
-        if not force and self._lock_view:
-            # 点击另一侧时，把原活动面板的视图复制过去（只同步这一次）
-            self._capture_active_view()
-            target_state = self._locked_state
+        if not force:
+            # 切换前只记录原面板自己的视图；绝不把缩放复制到刚点的那一侧
+            self._capture_panel_view(self.active_panel())
         self.active_side = side
         for p in self.panels:
             p.set_active_style(p.side == side)
@@ -1135,8 +1206,6 @@ class ImageViewerWindow(QMainWindow):
         p = self.panels[side]
         if not force and not p.canvas.is_capture_mode():
             p.canvas.set_mode("select" if self._tool == "select" else "draw")
-        if target_state is not None and p.canvas.can_load():
-            p.canvas.apply_view_state(target_state)
         self.update_loader_protection()
         self.refresh_status()
         self._schedule_prefetch()
@@ -1150,9 +1219,9 @@ class ImageViewerWindow(QMainWindow):
 
     # ── 重新加载两侧内容 ──
     def _reload_panels(self, base_index, capture=True):
-        # 换图片集/换布局前先记住当前视图，锁定模式下新图集继续保持该视图
+        # 换图片集/换布局前，两侧各自记住自己的视图
         if capture:
-            self._capture_active_view()
+            self._capture_all_views()
         imgs = self._images
         if not imgs:
             self.panels[0].set_empty("")
@@ -1166,13 +1235,14 @@ class ImageViewerWindow(QMainWindow):
         except (TypeError, ValueError):
             base = 0
         base = max(0, min(base, len(imgs) - 1))
-        # 本次重载统一使用同一份锁定状态，避免两侧分别采集导致偏移
-        state = self._locked_state if self._lock_view else None
-        self.panels[0].load_index(base, view_state=state)
+        # 每侧只套用自己的状态，避免右侧跟着左侧一起缩放/跳动
+        state0 = self._panel_states[0] if self._lock_view else None
+        state1 = self._panel_states[1] if self._lock_view else None
+        self.panels[0].load_index(base, view_state=state0)
         if self._layout_mode == viewer_config.LAYOUT_DUAL:
             if len(imgs) >= 2:
                 nxt = base + 1 if base + 1 < len(imgs) else base - 1
-                self.panels[1].load_index(max(0, nxt), view_state=state)
+                self.panels[1].load_index(max(0, nxt), view_state=state1)
             else:
                 self.panels[1].set_no_comparison()
         else:
@@ -1352,6 +1422,15 @@ class ImageViewerWindow(QMainWindow):
         self.act_lock.toggled.connect(self._on_lock_toggled)
         tb.addAction(self.act_lock)
 
+        # 左右缩放同步：开启后缩放/平移同时作用到两侧（默认关闭，各看各的）
+        self.act_sync_zoom = QAction("🔗 同步缩放", self)
+        self.act_sync_zoom.setToolTip(
+            "同步缩放：开启后放大/缩小/平移同时作用于左右两图；关闭时两侧各自独立，互不跳动")
+        self.act_sync_zoom.setCheckable(True)
+        self.act_sync_zoom.setChecked(self._sync_zoom)
+        self.act_sync_zoom.toggled.connect(self._on_sync_zoom_toggled)
+        tb.addAction(self.act_sync_zoom)
+
         tb.addSeparator()
 
         # 单图 / 双图并排切换
@@ -1448,6 +1527,7 @@ class ImageViewerWindow(QMainWindow):
         self.status_res = QLabel("—")
         self.status_zoom_lbl = QLabel("—")
         self.status_lock = QLabel("")
+        self.status_sync = QLabel("")
         self.status_names = QLabel("")
         # 分辨率标签用淡色强调
         self.status_res.setStyleSheet("color:#9aa4f2;")
@@ -1457,6 +1537,7 @@ class ImageViewerWindow(QMainWindow):
         self._brand_lbl.setStyleSheet("color:#6b7280;padding:0 8px;")
         status.addWidget(self._brand_lbl, 0)
         status.addWidget(self.status_names, 1)
+        status.addPermanentWidget(self.status_sync)
         status.addPermanentWidget(self.status_lock)
         status.addPermanentWidget(self.status_index)
         status.addPermanentWidget(self.status_res)
@@ -1506,8 +1587,8 @@ class ImageViewerWindow(QMainWindow):
     def set_images(self, images, current_index=0):
         new_images = list(images or [])
         new_set = set(new_images)
-        # 锁定视图时，换图片集也继续保持当前缩放区域
-        self._capture_active_view()
+        # 锁定视图时，换图片集也各自保持当前缩放区域
+        self._capture_all_views()
         # 先保存当前图的标注，再丢弃不在新图集中的旧标注（避免内存无限增长）
         for p in self.panels:
             p.store_state()

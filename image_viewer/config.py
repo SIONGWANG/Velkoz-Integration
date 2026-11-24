@@ -31,6 +31,8 @@ DEFAULT_PAN_BUTTON = "right"
 
 # 视图锁定默认：关闭（用户开启后持久化，切换图片/面板时保持缩放区域）
 DEFAULT_LOCK_VIEW = False
+# 左右缩放同步默认：关闭（各看各的，互不跳动）；开启后缩放/平移作用到两侧
+DEFAULT_SYNC_ZOOM = False
 
 # 查看器模式：内置 Image Viewer / 系统默认查看器
 # 注意：此 viewer_mode 指“用哪个查看器打开”，与下面的 layout_mode（布局）不同。
@@ -167,6 +169,7 @@ def get_viewer_settings():
         "viewer_mode": v.get("viewer_mode", DEFAULT_VIEWER_MODE),
         "layout_mode": layout_mode,
         "lock_view": bool(v.get("lock_view", DEFAULT_LOCK_VIEW)),
+        "sync_zoom": bool(v.get("sync_zoom", DEFAULT_SYNC_ZOOM)),
     }
 
 
@@ -223,6 +226,23 @@ def save_lock_view(enabled):
 
 def get_lock_view():
     return bool(get_viewer_settings().get("lock_view", DEFAULT_LOCK_VIEW))
+
+
+def save_sync_zoom(enabled):
+    """保存左右缩放同步开关，持久化到 settings.json。"""
+    all_data = _read_all()
+    if not isinstance(all_data, dict):
+        all_data = {}
+    v = all_data.get("image_viewer", {}) or {}
+    if not isinstance(v, dict):
+        v = {}
+    v["sync_zoom"] = bool(enabled)
+    all_data["image_viewer"] = v
+    _write_all(all_data)
+
+
+def get_sync_zoom():
+    return bool(get_viewer_settings().get("sync_zoom", DEFAULT_SYNC_ZOOM))
 
 
 def save_shortcuts(shortcuts):

@@ -18,7 +18,7 @@ else:
 
 # === ⚙️ 常量 ===
 APP_NAME = "审视之眼pro"
-APP_VERSION = "1.24.1"
+APP_VERSION = "1.24.2"
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 PRELOAD_AHEAD = 5
@@ -280,8 +280,11 @@ def _load_and_rotate(path, _mtime=0):
         img.verify()
         img = Image.open(path)
     except Exception:
-        Image.MAX_IMAGE_PIXELS = None  # 无限制兜底
-        img = Image.open(path)
+        # verify 失败（截断/不完整/超限）时退回直接打开；再失败就交给上层兜底
+        try:
+            img = Image.open(path)
+        except Exception:
+            return None
     try:
         exif = img._getexif()
         if exif:

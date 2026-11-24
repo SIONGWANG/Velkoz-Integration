@@ -17,6 +17,7 @@ from utils import (
     normalize_folder_pattern, build_folder_pattern_regex,
     get_pattern_digit_length,
 )
+import image_cache
 
 
 @st.cache_data(show_spinner=False)
@@ -189,22 +190,88 @@ def get_image_resolution(img_path):
         return "未知"
 
 
+def _stat_image(img_path):
+    """读取图片的 mtime/size；网络盘抖动时返回 (None, None)，不抛异常。"""
+    try:
+        st = os.stat(img_path)
+        return st.st_mtime, st.st_size
+    except OSError:
+        return None, None
+
+
+_DISPLAY_READ_ATTEMPTS = 3
+_DISPLAY_RETRY_DELAYS = (0.25, 0.8)
+
+
 def get_display_image_bytes(img_path):
-    """获取显示用图片的 bytes（缩放后的 JPEG），带 session_state 缓存"""
+    """获取显示用图片的 bytes（缩放后的 JPEG），带 session_state + 本地磁盘缓存。
+
+    网络盘（SMB）被百度网盘等占满时，读取可能超时。这里做三层兜底：
+    1. session_state 内存缓存；
+    2. 本机显示图磁盘缓存（路径 + mtime + 大小精确匹配）；
+    3. 读取失败时回退到最近一次成功缓存，避免主页只显示“加载失败”。
+    """
     cache = st.session_state.get("_display_img_cache")
     if cache is None:
         cache = {}
         st.session_state._display_img_cache = cache
-    mtime = os.path.getmtime(img_path)
-    cache_key = f"{img_path}_{mtime}"
-    if cache_key in cache:
+    mtime, size = _stat_image(img_path)
+    cache_key = f"{img_path}_{mtime}" if mtime is not None else None
+    if cache_key and cache_key in cache:
         return cache[cache_key]
-    img = _load_and_rotate(img_path, mtime)
+
+    # 精确版本命中：直接本地读取，完全不碰网络盘
+    if mtime is not None:
+        hit = image_cache.load(img_path, mtime, size)
+        if hit is not None:
+            cache[cache_key] = hit
+            image_cache.mark_success()
+            return hit
+
+    # 已经判定网络盘异常：先给旧缓存，别让页面再等 SMB 超时
+    if image_cache.is_degraded():
+        stale = image_cache.load(img_path)
+        if stale is not None:
+            data, res = stale
+            return data, (res + " · 本机缓存") if res else "本机缓存"
+
+    img = None
+    last_error = ""
+    for attempt in range(_DISPLAY_READ_ATTEMPTS):
+        try:
+            img = _load_and_rotate(img_path, mtime or 0)
+            if img is not None:
+                img.load()
+            if img is not None:
+                break
+        except Exception as e:  # 网络中断/文件被占用/解码失败
+            last_error = str(e)
+            img = None
+        if attempt < _DISPLAY_READ_ATTEMPTS - 1:
+            # `_load_and_rotate` 带 lru_cache，失败结果也会被缓存；
+            # 清掉失败项，否则后两次“重试”会直接拿到缓存的 None，等于没重试。
+            clear_cache = getattr(_load_and_rotate, "cache_clear", None)
+            if clear_cache is not None:
+                try:
+                    clear_cache()
+                except Exception:
+                    pass
+            time.sleep(_DISPLAY_RETRY_DELAYS[attempt])
+
     if img is None:
+        image_cache.mark_failure()
+        stale = image_cache.load(img_path)
+        if stale is not None:
+            data, res = stale
+            logging.warning("图片读取失败，已回退本地缓存: %s (%s)", img_path, last_error)
+            return data, (res + " · 本机缓存") if res else "本机缓存"
+        logging.warning("图片读取失败且无缓存: %s (%s)", img_path, last_error)
         placeholder = Image.new("RGB", (400, 300), color=(80, 80, 80))
         buf = BytesIO()
         placeholder.save(buf, format="JPEG", quality=60)
         return buf.getvalue(), "加载失败"
+
+    image_cache.mark_success()
     img, res_str = resize_image_for_display(img)
     if img.mode in ("RGBA", "LA", "PA"):
         background = Image.new("RGB", img.size, (255, 255, 255))
@@ -219,7 +286,13 @@ def get_display_image_bytes(img_path):
     img.save(buf, format="JPEG", quality=DISPLAY_JPEG_QUALITY)
     img_bytes = buf.getvalue()
     entry = (img_bytes, res_str)
-    cache[cache_key] = entry
+    if cache_key:
+        cache[cache_key] = entry
+    # 写入本地缓存；失败不影响本次显示
+    try:
+        image_cache.store(img_path, mtime or 0, size or 0, img_bytes, res_str)
+    except Exception:
+        logging.debug("写入显示图缓存失败: %s", img_path, exc_info=True)
     # 限制缓存：最多 50 条且总大小不超过 100MB
     MAX_CACHE_ENTRIES = 50
     MAX_CACHE_BYTES = 100 * 1024 * 1024  # 100MB
@@ -239,6 +312,9 @@ def preload_next_images(current_idx, all_groups):
     """滑动窗口预加载：预取当前索引之后 N 张图的原图至 LRU 缓存 + 显示缓存"""
     if not all_groups or current_idx < 0:
         return
+    # 网络盘已经异常时不要继续预取，避免把主线程继续拖进 SMB 超时
+    if image_cache.is_degraded():
+        return
 
     failed_count = 0
     preload_count = min(PRELOAD_AHEAD, len(all_groups) - 1 - current_idx)
@@ -248,13 +324,18 @@ def preload_next_images(current_idx, all_groups):
             break
         group = all_groups[target_idx]
         for img_path in group.get("images", []):
-            if img_path and os.path.exists(img_path):
-                try:
-                    _load_and_rotate(img_path, os.path.getmtime(img_path))
-                    get_display_image_bytes(img_path)
-                except Exception as e:
+            if not img_path:
+                continue
+            try:
+                mtime, _size = _stat_image(img_path)
+                if mtime is None:
                     failed_count += 1
-                    logging.warning("预加载失败 %s: %s", img_path, e)
+                    continue
+                _load_and_rotate(img_path, mtime)
+                get_display_image_bytes(img_path)
+            except Exception as e:
+                failed_count += 1
+                logging.warning("预加载失败 %s: %s", img_path, e)
 
     # 如果预加载失败较多，在UI上提示（仅在debug模式下）
     if failed_count > 0 and st.session_state.get('_debug_mode', False):
