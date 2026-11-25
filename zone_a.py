@@ -3,6 +3,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from disk_io import preload_next_images
+from utils import summarize_review_statuses
 
 
 class ZoneAMixin:
@@ -17,45 +18,74 @@ class ZoneAMixin:
             status_map = self.get_record_status_map(self._get_active_csv_path())
             # 只统计当前数据组内的记录状态
             current_status_map = {k: v for k, v in status_map.items() if k in set(all_ids)}
-            processed_ids = {k for k, v in current_status_map.items() if v}
+            stats = summarize_review_statuses(current_status_map, len(all_ids))
 
-            total_count = len(all_ids)
-            qualified_count = sum(1 for v in current_status_map.values() if v == '合格')
-            modified_pass_count = sum(1 for v in current_status_map.values() if v == '修改后合格')
-            unqualified_count = sum(1 for v in current_status_map.values() if v == '不合格')
-            unchecked_count = total_count - len(processed_ids)
-            pending_count = sum(1 for v in current_status_map.values() if v == '待定')
+            total_count = stats["total"]
+            qualified_count = stats["qualified"]
+            modified_pass_count = stats["modified"]
+            unqualified_count = stats["unqualified"]
+            unchecked_count = stats["unchecked"]
+            pending_count = stats["pending"]
+            inspected_count = stats["inspected"]
+            pass_rate = stats["pass_rate"]
+            progress = stats["progress"]
 
-            r1c1, r1c2 = st.columns(2)
-            with r1c1: st.metric("🟢 合格", qualified_count)
-            with r1c2: st.metric("🔵 修改后合格", modified_pass_count)
-            r2c1, r2c2 = st.columns(2)
-            with r2c1: st.metric("🔴 不合格", unqualified_count)
-            with r2c2: st.metric("⚪ 未检", unchecked_count)
-            r3c1, r3c2 = st.columns(2)
-            with r3c1: st.metric("🟡 待定", pending_count)
-            with r3c2:
-                pass_rate = round((qualified_count + modified_pass_count) / total_count * 100, 1) if total_count > 0 else 0
-                st.metric("📊 合格率", f"{pass_rate}%")
+            st.markdown(
+                f"""
+                <div style="border:1px solid rgba(128,128,128,.22);border-radius:12px;
+                            padding:9px 10px;background:rgba(128,128,128,.06);margin-bottom:6px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;
+                              gap:6px;flex-wrap:wrap">
+                    <div style="font-size:.76rem;opacity:.72">实时合格率</div>
+                    <div style="font-size:1.35rem;font-weight:700;line-height:1.1">{pass_rate}%</div>
+                  </div>
+                  <div style="height:6px;border-radius:4px;background:rgba(128,128,128,.20);
+                              margin:7px 0 8px;overflow:hidden">
+                    <div style="width:{min(100.0, max(0.0, pass_rate))}%;height:100%;
+                                background:linear-gradient(90deg,#22c55e,#3b82f6)"></div>
+                  </div>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.75rem;line-height:1.5">
+                    <span title="合格">🟢 <b>{qualified_count}</b></span>
+                    <span title="修改后合格">🔵 <b>{modified_pass_count}</b></span>
+                    <span title="不合格">🔴 <b>{unqualified_count}</b></span>
+                    <span title="待定">🟡 <b>{pending_count}</b></span>
+                    <span title="未检">⚪ <b>{unchecked_count}</b></span>
+                  </div>
+                  <div style="font-size:.68rem;opacity:.62;margin-top:4px">
+                    （合格+修改后合格）/ 已判定，不含未检/待定
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.progress(progress, text=f"已检 {inspected_count}/{total_count} · {int(progress * 100)}%")
 
-            done_count = qualified_count + modified_pass_count + unqualified_count + pending_count
-            progress = min(1.0, done_count / total_count) if total_count > 0 else 0
-            st.progress(progress, text=f"{done_count}/{total_count} ({int(progress*100)}%)")
-
-            # 3×2 筛选按钮网格（对齐上方 metric 卡片）
+            # 状态筛选：单行 pills（带数量），比 3×2 按钮更省空间
             filter_options = ["全部", "未检", "合格", "修改后合格", "不合格", "待定"]
-            current_filter = st.session_state.get('filter_pills', '全部')
-            for row_idx in range(3):
-                c1, c2 = st.columns(2)
-                for col_idx, col in enumerate([c1, c2]):
-                    opt = filter_options[row_idx * 2 + col_idx]
-                    with col:
-                        is_sel = (current_filter == opt)
-                        if st.button(opt, key=f"fbtn_{opt}", use_container_width=True,
-                                     type="primary" if is_sel else "secondary",
-                                     on_click=lambda _opt=opt: st.session_state.update({'filter_pills': _opt})):
-                            pass
-            filter_val = st.session_state.get('filter_pills', '全部')
+            filter_labels = {
+                "全部": f"全部·{total_count}",
+                "未检": f"未检·{unchecked_count}",
+                "合格": f"合格·{qualified_count}",
+                "修改后合格": f"修改·{modified_pass_count}",
+                "不合格": f"不合格·{unqualified_count}",
+                "待定": f"待定·{pending_count}",
+            }
+            applied_filter = st.session_state.get('_filter_applied')
+            selected_filter = st.pills(
+                "状态筛选",
+                filter_options,
+                selection_mode="single",
+                format_func=lambda opt: filter_labels.get(opt, opt),
+                key="filter_pills",
+                label_visibility="collapsed",
+                required=True,
+            )
+            if applied_filter is None:
+                st.session_state['_filter_applied'] = selected_filter or "全部"
+            elif selected_filter and selected_filter != applied_filter:
+                st.session_state['_filter_applied'] = selected_filter
+                st.rerun()
+            filter_val = selected_filter or st.session_state.get('filter_pills', '全部')
 
             # ── 快速查询 ──
             with st.expander("🔍 快速查询", expanded=False):

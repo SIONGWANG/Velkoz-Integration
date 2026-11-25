@@ -15,6 +15,7 @@ from utils import (
 )
 from export_utils import get_missing_ids as _export_get_missing_ids
 from disk_io import scan_files_from_disk, preload_next_images
+import image_cache
 from easter_eggs import on_data_loaded, on_sampling_start
 
 
@@ -777,6 +778,11 @@ class DataMixin:
         st.session_state.scan_cache_buster += 1
         scanned = scan_files_from_disk(scan_path, st.session_state.scan_cache_buster,
                                        rules_json=json.dumps(st.session_state.scan_rules, sort_keys=True, ensure_ascii=False))
+        # 换批次：后台清掉其他批次的显示缓存（当前批次缓存保留）
+        try:
+            image_cache.retain_only_async(scan_path)
+        except Exception:
+            logging.debug("清理旧批次图片缓存失败", exc_info=True)
         st.session_state.sampling_acceptance_mode = False
         st.session_state._saved_data_groups = None
         st.session_state._saved_current_id = None

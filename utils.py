@@ -18,7 +18,7 @@ else:
 
 # === ⚙️ 常量 ===
 APP_NAME = "审视之眼pro"
-APP_VERSION = "1.24.3"
+APP_VERSION = "1.24.4"
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 PRELOAD_AHEAD = 5
@@ -434,3 +434,38 @@ def read_txt(path):
                 return f.read()
         except Exception:
             return ""
+
+
+# === 📊 审核状态统计 ===
+def summarize_review_statuses(status_map, total_count):
+    """统计审核状态并计算合格率。
+
+    合格率 = (合格 + 修改后合格) / 已判定，
+    已判定 = 合格 + 修改后合格 + 不合格（未检、待定不进分母）。
+    status_map 已按当前数据组过滤；total_count 为当前组总条数。
+    """
+    qualified = modified = unqualified = pending = 0
+    for value in (status_map or {}).values():
+        if value == '合格':
+            qualified += 1
+        elif value == '修改后合格':
+            modified += 1
+        elif value == '不合格':
+            unqualified += 1
+        elif value == '待定':
+            pending += 1
+    total = max(0, int(total_count or 0))
+    judged = qualified + modified + unqualified
+    inspected = judged + pending
+    return {
+        "total": total,
+        "qualified": qualified,
+        "modified": modified,
+        "unqualified": unqualified,
+        "pending": pending,
+        "unchecked": max(0, total - inspected),
+        "judged": judged,
+        "inspected": inspected,
+        "pass_rate": round((qualified + modified) / judged * 100, 1) if judged > 0 else 0.0,
+        "progress": min(1.0, inspected / total) if total > 0 else 0.0,
+    }

@@ -7,7 +7,9 @@
 
 - 网络抖动时优先回退到最近一次成功的缓存，页面不再空白；
 - 缓存按“路径 + mtime + 大小”区分版本，源图更新后自动失效；
-- 按总大小/天数做 LRU 清理（默认 2GB / 60 天）。
+- 缓存只服务“当前正在做的批次”：打开/扫描新批次时自动清掉其他批次的缓存，
+  不会越积越多；
+- 另有一道 500MB 硬上限和磁盘剩余空间保护，作为异常情况的保险。
 
 只缓存显示用 JPEG，不缓存原图，不修改任何源文件。
 """
@@ -22,14 +24,22 @@ import threading
 import time
 
 CACHE_VERSION = 1
-DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024      # 2 GB
-DEFAULT_MAX_AGE_DAYS = 60
-DEGRADED_SECONDS = 20                            # 读取失败后 20 秒内不再主动碰网络盘
+DEFAULT_MAX_BYTES = 500 * 1024 * 1024      # 单批次缓存硬上限 500MB
+LOW_SPACE_BYTES = 500 * 1024 * 1024        # 剩余空间低于此值：暂停写新缓存
+TIGHT_SPACE_BYTES = 2 * 1024 * 1024 * 1024  # 剩余空间低于此值：收紧到 100MB
+TIGHT_BUDGET_BYTES = 100 * 1024 * 1024
+PRUNE_TARGET_RATIO = 0.8                   # 超限时一次清到 80%，避免频繁抖动
+DEGRADED_SECONDS = 20                      # 读取失败后 20 秒内不再主动碰网络盘
 
 _DEGRADED_UNTIL = 0.0
 _STORE_COUNTER = 0
 _STORE_LOCK = threading.Lock()
-_PRUNE_EVERY = 200        # 每写入 200 次触发一次轻量清理
+_PRUNE_EVERY = 50          # 每写入 50 次检查一次上限
+_MAINT_LOCK = threading.Lock()
+_RETAIN_LOCK = threading.Lock()
+_LAST_RETAIN_ROOT = ""
+_STARTED = False
+_START_LOCK = threading.Lock()
 
 
 def _base_dir() -> str:
@@ -66,6 +76,13 @@ def _entry_path(path: str) -> str:
     return os.path.join(entries, _path_key(path) + ".json")
 
 
+def _normalize(path: str) -> str:
+    try:
+        return os.path.normcase(os.path.abspath(str(path or "")))
+    except (OSError, ValueError):
+        return ""
+
+
 def _read_entry(path: str) -> dict | None:
     try:
         with open(_entry_path(path), "r", encoding="utf-8") as f:
@@ -92,6 +109,76 @@ def _write_json_atomic(target: str, data: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def _configured_max_bytes() -> int:
+    """缓存上限。允许用环境变量覆盖（测试/特殊部署用）。"""
+    raw = os.environ.get("VELKOZ_DISPLAY_CACHE_MAX_MB", "").strip()
+    if raw:
+        try:
+            return max(0, int(float(raw) * 1024 * 1024))
+        except ValueError:
+            pass
+    return DEFAULT_MAX_BYTES
+
+
+def _free_bytes() -> float | None:
+    try:
+        return shutil.disk_usage(_base_dir()).free
+    except OSError:
+        return None
+
+
+def _effective_budget() -> int:
+    """实际可用预算：磁盘紧张时自动收紧或停写。"""
+    budget = _configured_max_bytes()
+    free = _free_bytes()
+    if free is None:
+        return budget
+    if free < LOW_SPACE_BYTES:
+        return 0
+    if free < TIGHT_SPACE_BYTES:
+        return min(budget, TIGHT_BUDGET_BYTES)
+    return budget
+
+
+def _iter_entries():
+    """遍历所有条目 JSON，产出 (条目文件路径, 数据或 None)。"""
+    entries, _ = _dirs()
+    try:
+        names = os.listdir(entries)
+    except OSError:
+        return
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        ep = os.path.join(entries, name)
+        try:
+            with open(ep, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or int(data.get("v", 0)) != CACHE_VERSION:
+                data = None
+        except (OSError, ValueError):
+            data = None
+        yield ep, data
+
+
+def _remove_cached_file(data: dict | None) -> int:
+    """删除条目引用的缓存文件，返回释放字节数。"""
+    if not data:
+        return 0
+    fp = data.get("file") or ""
+    if not fp:
+        return 0
+    _, files = _dirs()
+    try:
+        if os.path.dirname(os.path.abspath(fp)) != os.path.abspath(files):
+            return 0
+        size = os.path.getsize(fp)
+        os.remove(fp)
+        return size
+    except OSError:
+        return 0
 
 
 def load(path: str, mtime=None, size=None) -> tuple[bytes, str] | None:
@@ -129,6 +216,9 @@ def load_stale(path: str) -> tuple[bytes, str] | None:
 def store(path: str, mtime, size, data: bytes, resolution: str = "") -> None:
     global _STORE_COUNTER
     if not data:
+        return
+    # 磁盘空间不足时不写新缓存，避免把用户磁盘撑满
+    if _effective_budget() <= 0:
         return
     try:
         _ensure_dirs()
@@ -202,7 +292,7 @@ def is_degraded() -> bool:
 
 
 def stats() -> dict:
-    """返回缓存统计（文件数 / 总字节 / 路径）。只读。"""
+    """返回缓存统计（文件数 / 总字节 / 路径 / 上限）。只读。"""
     entries, files = _dirs()
     total = 0
     count = 0
@@ -217,11 +307,16 @@ def stats() -> dict:
                 continue
     except OSError:
         pass
+    budget = _effective_budget()
     return {
         "root": _base_dir(),
         "files": count,
         "bytes": total,
         "mb": round(total / (1024 * 1024), 1),
+        "max_bytes": budget,
+        "max_mb": round(budget / (1024 * 1024), 1),
+        "percent": round(total / budget * 100, 1) if budget > 0 else 100.0,
+        "free_mb": round((_free_bytes() or 0) / (1024 * 1024), 0),
     }
 
 
@@ -237,44 +332,179 @@ def clear() -> dict:
     return before
 
 
-def prune(max_bytes: int = DEFAULT_MAX_BYTES, max_age_days: int = DEFAULT_MAX_AGE_DAYS) -> int:
-    """按总大小和天数清理缓存，返回删除的字节数。"""
-    _, files = _dirs()
+def _drop_entry(entry_file: str, data: dict | None) -> int:
+    removed = _remove_cached_file(data)
     try:
+        os.remove(entry_file)
+    except OSError:
+        pass
+    return removed
+
+
+def _prune_orphan_entries() -> int:
+    """删除指向的文件已不存在的条目 JSON。"""
+    removed = 0
+    for ep, data in _iter_entries():
+        if not data:
+            try:
+                os.remove(ep)
+            except OSError:
+                pass
+            continue
+        fp = data.get("file") or ""
+        if not fp or not os.path.isfile(fp):
+            removed += _drop_entry(ep, data)
+    return removed
+
+
+def prune(max_bytes: int = None, max_age_days: int = None) -> int:
+    """清理缓存，返回删除的字节数。
+
+    默认只按“当前批次的硬上限”做 LRU 清理（超限时清到 80%）。
+    max_age_days 仅保留给旧调用/特殊场景，日常不再按天数清理。
+    """
+    if max_bytes is None:
+        max_bytes = _effective_budget()
+    max_bytes = max(0, int(max_bytes))
+    with _MAINT_LOCK:
+        _, files = _dirs()
+        try:
+            names = os.listdir(files)
+        except OSError:
+            return 0
         items = []
-        for name in os.listdir(files):
+        for name in names:
             p = os.path.join(files, name)
             try:
-                st = os.stat(p)
+                stt = os.stat(p)
             except OSError:
                 continue
-            items.append((st.st_mtime, st.st_size, p))
-    except OSError:
-        return 0
-    now = time.time()
-    removed = 0
-    max_age = max(1, int(max_age_days)) * 86400
-    # 先删过期
-    alive = []
-    for mtime, size, p in items:
-        if now - mtime > max_age:
+            items.append((stt.st_mtime, stt.st_size, p))
+
+        now = time.time()
+        doomed: dict[str, int] = {}
+        if max_age_days:
+            max_age = max(1, int(max_age_days)) * 86400
+            for mtime, size, p in items:
+                if now - mtime > max_age:
+                    doomed[p] = size
+
+        alive = [i for i in items if i[2] not in doomed]
+        alive.sort(key=lambda x: x[0])
+        total = sum(x[1] for x in alive)
+        target = int(max_bytes * PRUNE_TARGET_RATIO)
+        for _mtime, size, p in alive:
+            if total <= target:
+                break
+            doomed[p] = size
+            total -= size
+
+        removed = 0
+        for p, size in doomed.items():
             try:
                 os.remove(p)
                 removed += size
-                continue
             except OSError:
                 pass
-        alive.append((mtime, size, p))
-    # 再按最久未访问删除，直到低于预算
-    alive.sort(key=lambda x: x[0])
-    total = sum(x[1] for x in alive)
-    for mtime, size, p in alive:
-        if total <= max_bytes:
-            break
-        try:
-            os.remove(p)
-            total -= size
-            removed += size
-        except OSError:
-            pass
+        removed += _prune_orphan_entries()
+        return removed
+
+
+def _is_under(path: str, root: str) -> bool:
+    if not path or not root:
+        return False
+    if path == root:
+        return True
+    prefix = root if root.endswith(os.sep) else root + os.sep
+    return path.startswith(prefix)
+
+
+def retain_only(root_path: str) -> int:
+    """只保留指定批次目录下的缓存，删除其他批次的缓存。
+
+    返回释放的字节数。root_path 为空时不做任何操作，避免误删。
+    """
+    if not str(root_path or "").strip():
+        return 0
+    root = _normalize(root_path)
+    if not root:
+        return 0
+    removed = 0
+    with _MAINT_LOCK:
+        for ep, data in list(_iter_entries()):
+            if not data:
+                try:
+                    os.remove(ep)
+                except OSError:
+                    pass
+                continue
+            if _is_under(_normalize(data.get("path", "")), root):
+                continue
+            removed += _drop_entry(ep, data)
     return removed
+
+
+def retain_only_async(root_path: str) -> None:
+    """后台清理其他批次缓存（不阻塞界面）。"""
+    global _LAST_RETAIN_ROOT
+    root = _normalize(root_path)
+    if not root:
+        return
+    with _RETAIN_LOCK:
+        if _LAST_RETAIN_ROOT == root:
+            return
+        _LAST_RETAIN_ROOT = root
+
+    def _work():
+        try:
+            retain_only(root)
+        except Exception:
+            pass
+
+    threading.Thread(target=_work, daemon=True, name="velkoz-cache-retain").start()
+
+
+def cleanup_tmp(max_age_seconds: int = 3600) -> int:
+    """清理异常退出留下的临时文件，返回释放字节数。"""
+    entries, files = _dirs()
+    removed = 0
+    now = time.time()
+    for folder in (entries, files):
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if not name.startswith(".tmp_"):
+                continue
+            p = os.path.join(folder, name)
+            try:
+                stt = os.stat(p)
+                if now - stt.st_mtime < max_age_seconds:
+                    continue
+                removed += stt.st_size
+                os.remove(p)
+            except OSError:
+                continue
+    return removed
+
+
+def _startup_work() -> None:
+    try:
+        cleanup_tmp()
+    except Exception:
+        pass
+    try:
+        prune()
+    except Exception:
+        pass
+
+
+def startup_maintenance() -> None:
+    """程序启动时后台执行一次清理（每个进程只跑一次，不阻塞首屏）。"""
+    global _STARTED
+    with _START_LOCK:
+        if _STARTED:
+            return
+        _STARTED = True
+    threading.Thread(target=_startup_work, daemon=True, name="velkoz-cache-maint").start()

@@ -5,7 +5,7 @@ import os
 import re
 import json
 
-from utils import APP_VERSION, BASE_DIR, read_txt
+from utils import APP_VERSION, BASE_DIR, read_txt, summarize_review_statuses
 from disk_io import (
     get_display_image_bytes, prime_display_cache,
     prime_display_cache_async, preload_next_images,
@@ -250,27 +250,28 @@ class ZoneBMixin:
         total = len(all_ids)
         # 只统计当前数据组内的记录状态
         current_status_map = {k: v for k, v in status_map.items() if k in set(all_ids)}
-        qualified = sum(1 for v in current_status_map.values() if v == '合格')
-        modified = sum(1 for v in current_status_map.values() if v == '修改后合格')
-        unqualified = sum(1 for v in current_status_map.values() if v == '不合格')
-        pending = sum(1 for v in current_status_map.values() if v == '待定')
-        processed = qualified + modified + unqualified + pending
-        unchecked = total - processed
-        pass_rate = round((qualified + modified) / total * 100, 1) if total > 0 else 0
+        stats = summarize_review_statuses(current_status_map, total)
+        qualified = stats["qualified"]
+        modified = stats["modified"]
+        unqualified = stats["unqualified"]
+        pending = stats["pending"]
+        processed = stats["inspected"]
+        unchecked = stats["unchecked"]
+        judged = stats["judged"]
+        pass_rate = stats["pass_rate"]
 
         st.success(f"🎉 全部验收完成！共 {total} 条，已完成 {processed} 条")
 
         r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-        with r1c1: st.metric("🟢 合格", qualified)
-        with r1c2: st.metric("🔴 不合格", unqualified)
+        with r1c1: st.metric("📊 合格率", f"{pass_rate}%", help="（合格+修改后合格）/ 已判定，不含未检/待定")
+        with r1c2: st.metric("🟢 合格", qualified)
         with r1c3: st.metric("🔵 修改后合格", modified)
-        with r1c4: st.metric("🟡 待定", pending)
+        with r1c4: st.metric("🔴 不合格", unqualified)
         r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-        with r2c1: st.metric("⚪ 未检", unchecked)
-        with r2c2: st.metric("📊 合格率", f"{pass_rate}%")
+        with r2c1: st.metric("🟡 待定", pending)
+        with r2c2: st.metric("⚪ 未检", unchecked)
         with r2c3: st.metric("📦 总计", total)
-        with r2c4:
-            pass  # 占位对齐
+        with r2c4: st.metric("✅ 已判定", judged)
 
         csv_path = self.get_csv_filename()
         if os.path.exists(csv_path):

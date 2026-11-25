@@ -1457,16 +1457,24 @@ class SettingsMixin:
                 "主页面图片会缓存在本机：局域网/共享盘读取变慢时先用缓存显示，"
                 "不会因为百度网盘下载等占满网络就整页空白。缓存只存显示用 JPEG，不改源文件。"
             )
+            st.caption(
+                "🧹 **自动清理**：只保留当前正在做的批次。打开/加载新批次时，"
+                "会自动删除其他批次的缓存，不需要手动清理。"
+            )
             st.caption(f"缓存位置：`{info.get('root', '')}`")
             c1, c2, c3 = st.columns([1, 1, 1.4])
-            c1.metric("缓存图片", f"{info.get('files', 0)} 张")
-            c2.metric("占用空间", f"{info.get('mb', 0)} MB")
+            c1.metric("当前缓存", f"{info.get('mb', 0)} MB")
+            c2.metric("缓存图片", f"{info.get('files', 0)} 张")
             with c3:
                 if st.button("🧹 清空图片缓存", use_container_width=True, key="_display_cache_clear"):
                     removed = image_cache.clear()
                     st.session_state.pop("_display_img_cache", None)
                     st.success(f"已清空：{removed.get('files', 0)} 张 / {removed.get('mb', 0)} MB")
                     st.rerun()
+            st.caption(
+                f"保险上限 {info.get('max_mb', 500)} MB：只有单个批次特别大时才会触发；"
+                f"磁盘剩余空间不足时会自动收紧或暂停写入。"
+            )
             st.caption(
                 "如果下载大文件时仍然卡顿：可运行根目录的「修复网络限流.bat」（需管理员），"
                 "关闭 Windows 的多媒体网络限流；或把百度网盘下载速度限制在 80% 左右。"

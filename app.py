@@ -38,6 +38,15 @@ logging.basicConfig(
 class AcceptanceApp(DataMixin, SettingsMixin, ExportMixin, ZoneAMixin, ZoneBMixin, ZoneCMixin):
     def __init__(self):
         settings = self._load_settings()
+        # 缓存维护：启动时后台清理临时文件并按上限收紧；只保留当前批次缓存
+        try:
+            import image_cache
+            image_cache.startup_maintenance()
+            saved_root = st.session_state.get('root_path') or settings.get('root_path', '')
+            if saved_root:
+                image_cache.retain_only_async(saved_root)
+        except Exception:
+            pass
         if 'data_groups' not in st.session_state: st.session_state.data_groups = []
         if 'root_path' not in st.session_state: st.session_state.root_path = settings.get('root_path', "")
         if 'current_id' not in st.session_state: st.session_state.current_id = None
