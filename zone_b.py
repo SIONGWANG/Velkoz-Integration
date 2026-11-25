@@ -6,7 +6,10 @@ import re
 import json
 
 from utils import APP_VERSION, BASE_DIR, read_txt
-from disk_io import get_display_image_bytes
+from disk_io import (
+    get_display_image_bytes, prime_display_cache,
+    prime_display_cache_async, preload_next_images,
+)
 from easter_eggs import on_batch_complete
 
 
@@ -349,6 +352,12 @@ class ZoneBMixin:
         img_bytes, res = get_display_image_bytes(curr_img_path)
         st.image(img_bytes, caption=f"展示: {curr_img}", use_container_width=True)
         st.caption(f"分辨率: {res}")
+        # 当前图已显示，后台预热同组其它图，切换时不再等网络盘
+        other_paths = [
+            os.path.join(group['root'], img)
+            for i, img in enumerate(images) if i != st.session_state.focus_img_idx
+        ]
+        prime_display_cache_async(other_paths)
 
     @st.fragment
     def render_b_image_area(self, group):
@@ -387,6 +396,9 @@ class ZoneBMixin:
 
         images = group['images']
         if st.session_state.view_mode == "四宫格":
+            # 首次打开时并行读取/生成全部显示图，避免一张一张串行等网络盘
+            grid_paths = [os.path.join(group['root'], img) for img in images]
+            prime_display_cache(grid_paths, workers=4)
             # 按每行 2 张动态生成，兼容 1~N 张图片；超过 4 张时继续向下排列，
             # 不再假定固定只有 2 行（旧实现 i>=4 会索引越界）。
             rows = [st.columns(2) for _ in range((len(images) + 1) // 2)]
@@ -436,6 +448,16 @@ class ZoneBMixin:
             """, height=0)
         else:
             self.render_single_image_view(group, images)
+
+        # 当前组渲染完再后台预取后面的组（不阻塞、不抢当前组图片的读取顺序）
+        if st.session_state.get("_last_prefetch_gid") != group.get("id"):
+            st.session_state["_last_prefetch_gid"] = group.get("id")
+            all_groups = st.session_state.get("data_groups", [])
+            id_to_group = {g['id']: g for g in all_groups}
+            seq = [id_to_group[gid] for gid in visible_ids_b if gid in id_to_group]
+            if seq:
+                preload_next_images(curr_idx_b, seq)
+
 
         st.markdown("---")
         t1, t2 = st.columns(2)

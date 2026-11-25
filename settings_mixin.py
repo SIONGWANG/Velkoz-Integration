@@ -25,33 +25,131 @@ class SettingsMixin:
 
     # ── 设置/标签 I/O ──
 
-    def _load_tags_from_disk(self):
-        """从本地 JSON 加载标签库"""
-        tags_file = os.path.join(BASE_DIR, "config", "tags.json")
-        if os.path.exists(tags_file):
+    def _tags_paths(self):
+        """返回 (本地镜像, 跨版本共享文件) 两个 tags.json 路径。
+
+        共享位置优先 D:\\VelkozDATA\\config\\tags.json（本机数据盘），
+        没有该目录时用 %LOCALAPPDATA%\\Velkoz\\config\\tags.json。
+        切换/解压新版本后仍读同一份标签库，不再丢标签。
+        可用环境变量 VELKOZ_TAGS_FILE 指定共享文件。
+        """
+        local = os.path.join(BASE_DIR, "config", "tags.json")
+        env = (os.environ.get("VELKOZ_TAGS_FILE") or "").strip()
+        if env:
+            return local, env
+        data_root = r"D:\VelkozDATA"
+        if os.path.isdir(data_root):
+            return local, os.path.join(data_root, "config", "tags.json")
+        localappdata = (os.environ.get("LOCALAPPDATA") or "").strip()
+        if localappdata:
+            return local, os.path.join(localappdata, "Velkoz", "config", "tags.json")
+        return local, None
+
+    @staticmethod
+    def _normalize_tags_data(data):
+        """把 tags.json 内容规范成 {"tags": [...], "frequent": [...]}。"""
+        if isinstance(data, list):
+            data = {"tags": data}
+        if not isinstance(data, dict):
+            return None
+        tags, frequent = [], []
+        for t in data.get("tags") or []:
+            t = str(t).strip()
+            if t and t not in tags:
+                tags.append(t)
+        for t in data.get("frequent") or []:
+            t = str(t).strip()
+            if t and t not in frequent:
+                frequent.append(t)
+        # 常用标签必须属于标签库，避免快捷区出现无法取消的“幽灵标签”
+        frequent = [t for t in frequent if t in tags]
+        return {"tags": tags, "frequent": frequent}
+
+    @classmethod
+    def _read_tags_file(cls, path):
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            if not content:
+                return None
+            return cls._normalize_tags_data(json.loads(content))
+        except Exception as e:
+            logging.warning("标签库读取失败: %s - %s", path, e)
+            return None
+
+    @staticmethod
+    def _write_tags_file(path, tags_data):
+        """原子写入单个 tags.json，失败返回 False。"""
+        if not path:
+            return False
+        tmp = path + ".tmp"
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(tags_data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+            return True
+        except Exception as e:
+            logging.warning("标签库写入失败: %s - %s", path, e)
             try:
-                with open(tags_file, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content:
-                        return json.loads(content)
-            except json.JSONDecodeError as e:
-                logging.warning("标签库JSON解析失败: %s - %s", tags_file, str(e))
-                st.session_state['_tags_load_error'] = f"JSON格式错误: {str(e)}"
-            except Exception as e:
-                logging.warning("标签库加载失败: %s - %s", tags_file, str(e))
-                st.session_state['_tags_load_error'] = str(e)
-        return {"tags": [], "frequent": []}
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+            return False
+
+    def _load_tags_from_disk(self):
+        """加载标签库：共享文件优先，其次本地镜像。
+
+        首次使用新版本时若还没有共享文件，会自动把当前 config/tags.json
+        迁移过去；之后各版本共用同一份标签库。
+        """
+        local, shared = self._tags_paths()
+        data = self._read_tags_file(shared)
+        if data is None:
+            data = self._read_tags_file(local)
+        if data is None:
+            return {"tags": [], "frequent": []}
+        # 双写：共享文件给以后的版本用，本地镜像留作备份/降级兼容
+        self._write_tags_file(shared, data)
+        if local != shared:
+            self._write_tags_file(local, data)
+        return data
 
     def _save_tags_to_disk(self, tags_data):
-        """保存标签库到本地 JSON"""
-        tags_file = os.path.join(BASE_DIR, "config", "tags.json")
-        try:
-            os.makedirs(os.path.dirname(tags_file), exist_ok=True)
-            with open(tags_file, 'w', encoding='utf-8') as f:
-                json.dump(tags_data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logging.warning("标签库保存失败: %s", tags_file)
-            st.warning(f"⚠️ 标签库保存失败：{e}")
+        """保存标签库：共享文件 + 本地镜像双写。"""
+        data = self._normalize_tags_data(tags_data) or {"tags": [], "frequent": []}
+        local, shared = self._tags_paths()
+        ok_shared = self._write_tags_file(shared, data)
+        ok_local = self._write_tags_file(local, data)
+        if not ok_local and not ok_shared:
+            st.warning("⚠️ 标签库保存失败：请检查 config 目录或数据盘是否可写。")
+        elif shared and not ok_shared:
+            logging.warning("标签库未能写入共享位置: %s（本次仍保存到本地）", shared)
+
+    @classmethod
+    def _merge_tags_data(cls, base, incoming):
+        """把导入的标签库合并进现有标签库，返回 (合并结果, 新增标签数, 新增常用数)。"""
+        base = cls._normalize_tags_data(base) or {"tags": [], "frequent": []}
+        incoming = cls._normalize_tags_data(incoming) or {"tags": [], "frequent": []}
+        tags = list(base["tags"])
+        frequent = list(base["frequent"])
+        added_tags = 0
+        added_freq = 0
+        for t in incoming["tags"]:
+            if t not in tags:
+                tags.append(t)
+                added_tags += 1
+        for t in incoming["frequent"]:
+            if t in tags and t not in frequent:
+                frequent.append(t)
+                added_freq += 1
+        return {"tags": tags, "frequent": frequent}, added_tags, added_freq
+
 
     def _load_settings(self):
         settings_file = os.path.join(BASE_DIR, "config", "settings.json")

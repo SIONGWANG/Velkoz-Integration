@@ -6,13 +6,15 @@ import json
 import datetime
 import logging
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from PIL import Image, ImageOps
 from io import BytesIO
 
 from utils import (
-    PRELOAD_AHEAD, DISPLAY_JPEG_QUALITY,
-    find_image_file, _load_and_rotate, resize_image_for_display,
+    PRELOAD_AHEAD, DISPLAY_JPEG_QUALITY, MAX_DISPLAY_PX,
+    find_image_file, resize_image_for_display,
     extract_user_name, DEFAULT_SCAN_RULES, EVIDENCE_FOLDER_NAME,
     normalize_folder_pattern, build_folder_pattern_regex,
     get_pattern_digit_length,
@@ -203,6 +205,134 @@ _DISPLAY_READ_ATTEMPTS = 3
 _DISPLAY_RETRY_DELAYS = (0.25, 0.8)
 
 
+def _tag_stale(entry):
+    """给回退缓存的分辨率文本加标记，避免把旧图误当最新图。"""
+    data, res = entry
+    return data, (res + " · 本机缓存") if res else "本机缓存"
+
+
+def _open_for_display(img_path):
+    """快速打开图片用于主界面显示。
+
+    与 _load_and_rotate 的区别：
+    - JPEG 先用 draft() 让解码器直接按 1/2、1/4、1/8 降采样，大图解码快很多；
+    - 不做 verify()+二次打开（会整份读两遍），失败由上层重试/兜底；
+    - 返回 (图像, 原图宽, 原图高)，分辨率显示仍用原图尺寸。
+    """
+    img = Image.open(img_path)
+    orig_w, orig_h = img.size
+    try:
+        orientation = img.getexif().get(274)
+    except Exception:
+        orientation = None
+    if orientation in (5, 6, 7, 8):
+        orig_w, orig_h = orig_h, orig_w
+    try:
+        img.draft("RGB", (MAX_DISPLAY_PX, MAX_DISPLAY_PX))
+    except Exception:
+        pass
+    img.load()
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    return img, orig_w, orig_h
+
+
+def _placeholder_entry():
+    placeholder = Image.new("RGB", (400, 300), color=(80, 80, 80))
+    buf = BytesIO()
+    placeholder.save(buf, format="JPEG", quality=60)
+    return buf.getvalue(), "加载失败"
+
+
+def _build_display_entry(img_path, mtime=None, size=None):
+    """生成/读取显示图缓存（纯函数，不依赖 Streamlit，可安全用于后台线程）。"""
+    if mtime is None:
+        mtime, size = _stat_image(img_path)
+
+    # 精确版本命中：直接本地读取，完全不碰网络盘
+    if mtime is not None:
+        hit = image_cache.load(img_path, mtime, size)
+        if hit is not None:
+            image_cache.mark_success()
+            return hit
+
+    # 已经判定网络盘异常：先给旧缓存；连旧缓存都没有就直接占位，
+    # 不要再排 3 次 SMB 超时把页面拖住（20 秒后会重新尝试）
+    if image_cache.is_degraded():
+        stale = image_cache.load(img_path)
+        if stale is not None:
+            return _tag_stale(stale)
+        return _placeholder_entry()
+
+    img = None
+    orig_w = orig_h = 0
+    last_error = ""
+    for attempt in range(_DISPLAY_READ_ATTEMPTS):
+        try:
+            img, orig_w, orig_h = _open_for_display(img_path)
+            break
+        except Exception as e:  # 网络中断/文件被占用/解码失败
+            last_error = str(e)
+            img = None
+            if attempt < _DISPLAY_READ_ATTEMPTS - 1:
+                time.sleep(_DISPLAY_RETRY_DELAYS[attempt])
+
+    if img is None:
+        image_cache.mark_failure()
+        stale = image_cache.load(img_path)
+        if stale is not None:
+            logging.warning("图片读取失败，已回退本地缓存: %s (%s)", img_path, last_error)
+            return _tag_stale(stale)
+        logging.warning("图片读取失败且无缓存: %s (%s)", img_path, last_error)
+        return _placeholder_entry()
+
+    image_cache.mark_success()
+    img, _ = resize_image_for_display(img)
+    if img.mode in ("RGBA", "LA", "PA"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "PA":
+            img = img.convert("RGBA")
+        background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+    img = ImageOps.expand(img, border=2, fill=(180, 180, 180))
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=DISPLAY_JPEG_QUALITY)
+    img_bytes = buf.getvalue()
+    res_str = f"{orig_w}×{orig_h}" if orig_w and orig_h else ""
+    entry = (img_bytes, res_str)
+    # 写入本地缓存；失败不影响本次显示
+    try:
+        image_cache.store(img_path, mtime or 0, size or 0, img_bytes, res_str)
+    except Exception:
+        logging.debug("写入显示图缓存失败: %s", img_path, exc_info=True)
+    return entry
+
+
+def _safe_build(path):
+    try:
+        return _build_display_entry(path)
+    except Exception as e:
+        logging.warning("预热图片失败 %s: %s", path, e)
+        return None
+
+
+def _trim_session_cache(cache):
+    MAX_CACHE_ENTRIES = 50
+    MAX_CACHE_BYTES = 100 * 1024 * 1024  # 100MB
+    while len(cache) > MAX_CACHE_ENTRIES:
+        oldest = next(iter(cache))
+        del cache[oldest]
+    total_bytes = sum(len(v[0]) for v in cache.values() if isinstance(v, tuple))
+    while total_bytes > MAX_CACHE_BYTES and len(cache) > 1:
+        oldest = next(iter(cache))
+        total_bytes -= len(cache[oldest][0])
+        del cache[oldest]
+
+
 def get_display_image_bytes(img_path):
     """获取显示用图片的 bytes（缩放后的 JPEG），带 session_state + 本地磁盘缓存。
 
@@ -220,126 +350,97 @@ def get_display_image_bytes(img_path):
     if cache_key and cache_key in cache:
         return cache[cache_key]
 
-    # 精确版本命中：直接本地读取，完全不碰网络盘
-    if mtime is not None:
-        hit = image_cache.load(img_path, mtime, size)
-        if hit is not None:
-            cache[cache_key] = hit
-            image_cache.mark_success()
-            return hit
-
-    # 已经判定网络盘异常：先给旧缓存，别让页面再等 SMB 超时
-    if image_cache.is_degraded():
-        stale = image_cache.load(img_path)
-        if stale is not None:
-            data, res = stale
-            return data, (res + " · 本机缓存") if res else "本机缓存"
-
-    img = None
-    last_error = ""
-    for attempt in range(_DISPLAY_READ_ATTEMPTS):
-        try:
-            img = _load_and_rotate(img_path, mtime or 0)
-            if img is not None:
-                img.load()
-            if img is not None:
-                break
-        except Exception as e:  # 网络中断/文件被占用/解码失败
-            last_error = str(e)
-            img = None
-        if attempt < _DISPLAY_READ_ATTEMPTS - 1:
-            # `_load_and_rotate` 带 lru_cache，失败结果也会被缓存；
-            # 清掉失败项，否则后两次“重试”会直接拿到缓存的 None，等于没重试。
-            clear_cache = getattr(_load_and_rotate, "cache_clear", None)
-            if clear_cache is not None:
-                try:
-                    clear_cache()
-                except Exception:
-                    pass
-            time.sleep(_DISPLAY_RETRY_DELAYS[attempt])
-
-    if img is None:
-        image_cache.mark_failure()
-        stale = image_cache.load(img_path)
-        if stale is not None:
-            data, res = stale
-            logging.warning("图片读取失败，已回退本地缓存: %s (%s)", img_path, last_error)
-            return data, (res + " · 本机缓存") if res else "本机缓存"
-        logging.warning("图片读取失败且无缓存: %s (%s)", img_path, last_error)
-        placeholder = Image.new("RGB", (400, 300), color=(80, 80, 80))
-        buf = BytesIO()
-        placeholder.save(buf, format="JPEG", quality=60)
-        return buf.getvalue(), "加载失败"
-
-    image_cache.mark_success()
-    img, res_str = resize_image_for_display(img)
-    if img.mode in ("RGBA", "LA", "PA"):
-        background = Image.new("RGB", img.size, (255, 255, 255))
-        if img.mode == "PA":
-            img = img.convert("RGBA")
-        background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-        img = background
-    elif img.mode != "RGB":
-        img = img.convert("RGB")
-    img = ImageOps.expand(img, border=2, fill=(180, 180, 180))
-    buf = BytesIO()
-    img.save(buf, format="JPEG", quality=DISPLAY_JPEG_QUALITY)
-    img_bytes = buf.getvalue()
-    entry = (img_bytes, res_str)
-    if cache_key:
+    entry = _build_display_entry(img_path, mtime, size)
+    # 旧缓存/占位图不进 session 缓存，下一次仍会先尝试读源图，网络恢复后自动更新
+    if cache_key and entry[1] != "加载失败" and "本机缓存" not in (entry[1] or ""):
         cache[cache_key] = entry
-    # 写入本地缓存；失败不影响本次显示
-    try:
-        image_cache.store(img_path, mtime or 0, size or 0, img_bytes, res_str)
-    except Exception:
-        logging.debug("写入显示图缓存失败: %s", img_path, exc_info=True)
-    # 限制缓存：最多 50 条且总大小不超过 100MB
-    MAX_CACHE_ENTRIES = 50
-    MAX_CACHE_BYTES = 100 * 1024 * 1024  # 100MB
-    while len(cache) > MAX_CACHE_ENTRIES:
-        oldest = next(iter(cache))
-        del cache[oldest]
-    # 估算缓存总大小
-    total_bytes = sum(len(v[0]) for v in cache.values() if isinstance(v, tuple))
-    while total_bytes > MAX_CACHE_BYTES and len(cache) > 1:
-        oldest = next(iter(cache))
-        total_bytes -= len(cache[oldest][0])
-        del cache[oldest]
+        _trim_session_cache(cache)
     return entry
 
 
+def prime_display_cache(paths, workers=4):
+    """并行预热一组显示图（首次打开网格时把串行读盘变成并行）。
+
+    只写磁盘缓存，不碰 session_state，可在主线程等待，也可安全用于后台。
+    """
+    unique, seen = [], set()
+    for p in paths or []:
+        if p and p not in seen:
+            seen.add(p)
+            unique.append(p)
+    if not unique:
+        return
+    if len(unique) == 1:
+        _safe_build(unique[0])
+        return
+    workers = max(1, min(int(workers), len(unique), 4))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="velkoz-prime") as ex:
+        list(ex.map(_safe_build, unique))
+
+
+# ── 后台预加载：不阻塞页面渲染 ──
+_PREFETCH_LOCK = threading.Lock()
+_PREFETCH_GEN = 0
+_PREFETCH_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="velkoz-prefetch")
+_MAX_PREFETCH_IMAGES = 12
+
+
+def _prefetch_task(path, gen):
+    with _PREFETCH_LOCK:
+        if gen != _PREFETCH_GEN:
+            return
+    _safe_build(path)
+
+
+def prime_display_cache_async(paths):
+    """后台预热（不等待），用于单图模式下预取同组其他图片。
+
+    注意：这里不使用预取“代际”取消机制——当前组是同组图片，永远值得读；
+    否则后面的换组预取一启动，会把刚排队的当前组任务全部作废。
+    """
+    for p in paths or []:
+        if p:
+            _PREFETCH_EXECUTOR.submit(_safe_build, p)
+
+
 def preload_next_images(current_idx, all_groups):
-    """滑动窗口预加载：预取当前索引之后 N 张图的原图至 LRU 缓存 + 显示缓存"""
+    """后台预取当前索引之后的若干组图片（不阻塞界面）。
+
+    注意：group['images'] 存的是文件名，需要和 group['root'] 拼接；
+    旧实现漏了这一步，实际从未预取成功，也是首次打开图片慢的原因之一。
+    """
+    global _PREFETCH_GEN
     if not all_groups or current_idx < 0:
         return
-    # 网络盘已经异常时不要继续预取，避免把主线程继续拖进 SMB 超时
     if image_cache.is_degraded():
         return
 
-    failed_count = 0
+    paths, seen = [], set()
     preload_count = min(PRELOAD_AHEAD, len(all_groups) - 1 - current_idx)
     for i in range(1, preload_count + 1):
         target_idx = current_idx + i
         if target_idx >= len(all_groups):
             break
         group = all_groups[target_idx]
-        for img_path in group.get("images", []):
-            if not img_path:
+        root = group.get("root", "")
+        for name in group.get("images", []):
+            if not name:
                 continue
-            try:
-                mtime, _size = _stat_image(img_path)
-                if mtime is None:
-                    failed_count += 1
-                    continue
-                _load_and_rotate(img_path, mtime)
-                get_display_image_bytes(img_path)
-            except Exception as e:
-                failed_count += 1
-                logging.warning("预加载失败 %s: %s", img_path, e)
+            path = name if os.path.isabs(name) else os.path.join(root, name)
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+            if len(paths) >= _MAX_PREFETCH_IMAGES:
+                break
+        if len(paths) >= _MAX_PREFETCH_IMAGES:
+            break
 
-    # 如果预加载失败较多，在UI上提示（仅在debug模式下）
-    if failed_count > 0 and st.session_state.get('_debug_mode', False):
-        st.toast(f"⚠️ {failed_count} 张图片预加载失败", icon="⚠️")
+    with _PREFETCH_LOCK:
+        _PREFETCH_GEN += 1
+        gen = _PREFETCH_GEN
+    for p in paths:
+        _PREFETCH_EXECUTOR.submit(_prefetch_task, p, gen)
+
 
 
 @st.cache_data(show_spinner=False)

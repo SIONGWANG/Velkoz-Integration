@@ -482,7 +482,7 @@ class DataMixin:
                 all_groups = st.session_state.get('data_groups', [])
                 id_to_group = {g['id']: g for g in all_groups}
                 preload_groups = [id_to_group[gid] for gid in filtered_ids if gid in id_to_group]
-                preload_next_images(curr_idx - 1, preload_groups)
+                preload_next_images(max(0, curr_idx - 2), preload_groups)
 
     def go_to_next_group(self):
         now = time.time()

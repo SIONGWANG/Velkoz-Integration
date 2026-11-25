@@ -1,6 +1,7 @@
 # zone_c.py — C区渲染方法，提取自 app.py
 import streamlit as st
 import os
+import json
 
 from utils import DEFAULT_CATEGORIES
 from disk_io import preload_next_images
@@ -286,22 +287,7 @@ class ZoneCMixin:
             else:
                 st.caption("暂无标签")
 
-            st.divider()
-
-            st.caption("📋 批量操作")
-            bc1, bc2 = st.columns(2)
-            with bc1:
-                if st.button("✅ 全选所有标签", use_container_width=True, key=f"select_all_{current_id}"):
-                    # 全选 = 本地全部标签 ∪ 当前已选（含历史标签），避免误删历史标签
-                    merged_all = list(dict.fromkeys(
-                        list(all_tags) + list(st.session_state.selected_tags.get(current_id, []))
-                    ))
-                    st.session_state.selected_tags[current_id] = merged_all
-                    self._sync_tags_to_notes(group)
-            with bc2:
-                if st.button("🗑️ 清空已选标签", use_container_width=True, key=f"clear_all_{current_id}"):
-                    st.session_state.selected_tags[current_id] = []
-                    self._sync_tags_to_notes(group)
+            self._render_tag_backup_tools(current_id, tags_data)
 
         if is_pass_submit:
             status_sel = "合格"
@@ -371,3 +357,57 @@ class ZoneCMixin:
                 else:
                     if save_msg:
                         st.error(save_msg)
+
+    # ── 标签库备份 / 复用（换版本后不丢标签） ──
+    def _render_tag_backup_tools(self, current_id, tags_data):
+        """导入旧版本标签 / 导出当前标签库。
+
+        标签库现在保存在本机共享位置，切换版本会自动沿用；
+        这个面板用于从别的电脑或旧文件夹手动合并一次。
+        """
+        flash = st.session_state.pop("_tag_import_flash", None)
+        if flash:
+            st.success(flash)
+
+        st.divider()
+        st.caption("📥 标签库备份 / 复用")
+        payload = {
+            "tags": list(tags_data.get("tags", [])),
+            "frequent": list(tags_data.get("frequent", [])),
+        }
+        st.download_button(
+            "⬇️ 导出当前标签库",
+            data=json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            file_name="tags.json",
+            mime="application/json",
+            use_container_width=True,
+            key=f"mgmt_export_{current_id}",
+            help="保存为 tags.json；换电脑或换版本后可再导入。",
+        )
+        uploaded = st.file_uploader(
+            "从旧版本导入（选择旧版本 config 目录里的 tags.json）",
+            type=["json"],
+            key=f"mgmt_import_file_{current_id}",
+        )
+        if st.button(
+            "📥 合并导入到当前标签库",
+            use_container_width=True,
+            key=f"mgmt_import_btn_{current_id}",
+            disabled=uploaded is None,
+        ):
+            try:
+                incoming = json.loads(uploaded.getvalue().decode("utf-8-sig"))
+            except Exception:
+                incoming = None
+            incoming = self._normalize_tags_data(incoming)
+            if incoming is None:
+                st.error("❌ 无法读取：请选择旧版本 config 目录下的 tags.json。")
+                return
+            merged, added_tags, added_freq = self._merge_tags_data(tags_data, incoming)
+            st.session_state.custom_tags = merged
+            self._save_tags_to_disk(merged)
+            st.session_state["_tag_import_flash"] = (
+                f"✅ 已合并导入：新增 {added_tags} 个标签"
+                f"（常用 +{added_freq}），当前共 {len(merged['tags'])} 个。"
+            )
+            self._rerun_app()

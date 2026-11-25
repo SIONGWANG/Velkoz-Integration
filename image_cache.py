@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 
 CACHE_VERSION = 1
@@ -27,6 +28,7 @@ DEGRADED_SECONDS = 20                            # 读取失败后 20 秒内不�
 
 _DEGRADED_UNTIL = 0.0
 _STORE_COUNTER = 0
+_STORE_LOCK = threading.Lock()
 _PRUNE_EVERY = 200        # 每写入 200 次触发一次轻量清理
 
 
@@ -175,8 +177,10 @@ def store(path: str, mtime, size, data: bytes, resolution: str = "") -> None:
     except OSError:
         pass
     # 每写入一定次数做一次轻量清理，防止缓存无限增长
-    _STORE_COUNTER += 1
-    if _STORE_COUNTER % _PRUNE_EVERY == 0:
+    with _STORE_LOCK:
+        _STORE_COUNTER += 1
+        need_prune = (_STORE_COUNTER % _PRUNE_EVERY == 0)
+    if need_prune:
         try:
             prune()
         except Exception:
