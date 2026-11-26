@@ -1044,30 +1044,36 @@ class SettingsMixin:
             return "".join((body[0] * n))
         return "a" * n
 
-    def _render_block_length_inputs(self, block, i):
-        """字符类块的长度输入：count（精确）或 min/max（范围），依据块数据自动判断。"""
+    def _render_block_length_inputs(self, block, i, compact=False, narrow=False, gen=0):
+        """字符类块的长度输入：count（精确）或 min/max（范围），依据块数据自动判断。
+        compact=True 时隐藏标签，供横排紧凑布局使用。"""
+        vis = "collapsed" if compact else "visible"
+        width = "stretch" if (narrow or not compact) else 78
         if "min" in block or "max" in block:
-            c1, c2 = st.columns(2)
-            with c1:
-                lo = st.number_input("最小", min_value=1, max_value=30,
-                                     value=int(block.get("min") or 1),
-                                     key=f"_sr_blk_min_{i}")
-            with c2:
-                hi = st.number_input("最大", min_value=1, max_value=30,
-                                     value=int(block.get("max") or lo),
-                                     key=f"_sr_blk_max_{i}")
+            lo = st.number_input("最小", min_value=1, max_value=30,
+                                 value=int(block.get("min") or 1),
+                                 key=f"_sr_blk_min_{gen}_{i}", label_visibility=vis,
+                                 help="最小长度" if compact else None,
+                                 width=width)
+            hi = st.number_input("最大", min_value=1, max_value=30,
+                                 value=int(block.get("max") or lo),
+                                 key=f"_sr_blk_max_{gen}_{i}", label_visibility=vis,
+                                 help="最大长度" if compact else None,
+                                 width=width)
             block["min"], block["max"] = int(lo), int(hi)
             block.pop("count", None)
         else:
             cnt = st.number_input("长度（字符数）", min_value=1, max_value=30,
                                   value=int(block.get("count") or 1),
-                                  key=f"_sr_blk_cnt_{i}")
+                                  key=f"_sr_blk_cnt_{gen}_{i}", label_visibility=vis,
+                                  help="长度（字符数）" if compact else None,
+                                  width=width)
             block["count"] = int(cnt)
             block.pop("min", None)
             block.pop("max", None)
 
-    def _render_folder_blocks_editor(self, blocks):
-        """块编辑器：规则概览 + 单块编辑 + 折叠测试。
+    def _render_folder_blocks_editor(self, blocks, narrow=False, gen=0):
+        """块编辑器：每块一条紧凑横排，所有块同时可见。
         blocks: 工作副本中的块列表（直接就地修改）。"""
         rule_opts = {
             "digits": "数字 0-9",
@@ -1110,91 +1116,74 @@ class SettingsMixin:
                 unsafe_allow_html=True,
             )
 
-        # 多块时只编辑选中的一块，避免一次铺开所有块
-        if len(blocks) > 1:
-            opts = list(range(len(blocks)))
-            if st.session_state.get("_sr_blk_sel") not in opts:
-                st.session_state["_sr_blk_sel"] = opts[0]
-            i = st.selectbox(
-                "编辑块", opts, key="_sr_blk_sel",
-                format_func=lambda n: f"块 {n+1}",
-                label_visibility="collapsed",
-            )
-        else:
-            i = 0
+        # 所有块逐条横排，不折叠、不切换
+        for i, block in enumerate(blocks):
+            with st.container(horizontal=True, vertical_alignment="center",
+                              gap="small", key=f"sr_blk_row_{gen}_{i}"):
+                st.markdown(f'<span class="vk-row-no">{i+1}</span>',
+                            unsafe_allow_html=True)
+                cur_rule = block.get("rule", "digits")
+                idx = rule_labels.index(cur_rule) if cur_rule in rule_labels else 0
+                new_rule = st.selectbox("类型", rule_labels,
+                                        index=idx, key=f"_sr_blk_rule_{gen}_{i}",
+                                        format_func=lambda r, rs=rule_short: rs.get(r, r),
+                                        label_visibility="collapsed",
+                                        help="字符类型",
+                                        width="stretch" if narrow else 100)
+                # 类型变更时清空该块的内容/长度 key，避免旧值残留导致测试误判
+                if new_rule != cur_rule:
+                    block["rule"] = new_rule
+                    block.pop("value", None)
+                    block.pop("chars", None)
+                    for k in (f"_sr_blk_val_{gen}_{i}", f"_sr_blk_chars_{gen}_{i}",
+                              f"_sr_blk_cnt_{gen}_{i}", f"_sr_blk_min_{gen}_{i}",
+                              f"_sr_blk_max_{gen}_{i}"):
+                        st.session_state.pop(k, None)
+                    st.session_state["_sr_gen"] = gen + 1
+                    st.rerun()
 
-        block = blocks[i]
-        with st.container(border=True):
-            if len(blocks) == 1:
-                st.markdown(
-                    f'<div class="vk-blk-head"><span class="vk-blk-no">块 1</span>'
-                    f'<span class="vk-blk-desc">{self._describe_block(block, rule_opts)}</span></div>',
-                    unsafe_allow_html=True,
-                )
-            cur_rule = block.get("rule", "digits")
-            idx = rule_labels.index(cur_rule) if cur_rule in rule_labels else 0
-            new_rule = st.selectbox(f"块 {i+1} 字符类型", rule_labels,
-                                    index=idx, key=f"_sr_blk_rule_{i}",
-                                    format_func=lambda r, rs=rule_short: rs.get(r, r),
-                                    label_visibility="collapsed")
-            # 类型变更时清空该块的内容/长度 key，避免旧值残留导致测试误判
-            if new_rule != cur_rule:
-                block["rule"] = new_rule
-                block.pop("value", None)
-                block.pop("chars", None)
-                for k in (f"_sr_blk_val_{i}", f"_sr_blk_chars_{i}",
-                          f"_sr_blk_cnt_{i}", f"_sr_blk_min_{i}", f"_sr_blk_max_{i}"):
-                    st.session_state.pop(k, None)
-                st.rerun()
+                if new_rule == "literal":
+                    block["value"] = st.text_input(
+                        "固定字符串", value=block.get("value", ""),
+                        key=f"_sr_blk_val_{gen}_{i}", placeholder="固定字符串",
+                        label_visibility="collapsed",
+                        help="原样匹配：这一整段文字会完整出现在文件夹名中",
+                        width="stretch" if narrow else 180)
+                elif new_rule == "charset":
+                    block["chars"] = st.text_input(
+                        "字符集", value=block.get("chars", ""),
+                        key=f"_sr_blk_chars_{gen}_{i}", placeholder="字符集，^ 开头=排除",
+                        label_visibility="collapsed",
+                        help="允许的字符集合；^ 开头表示排除这些字符",
+                        width="stretch" if narrow else 170)
+                    self._render_block_length_inputs(block, i, compact=True,
+                                                     narrow=narrow, gen=gen)
+                else:
+                    self._render_block_length_inputs(block, i, compact=True,
+                                                     narrow=narrow, gen=gen)
 
-            # 内容/长度输入（随类型变化）
-            if new_rule == "literal":
-                block["value"] = st.text_input("固定字符串",
-                                               value=block.get("value", ""),
-                                               key=f"_sr_blk_val_{i}",
-                                               placeholder="例如 ABC / 样本 / F-01",
-                                               help="原样匹配：这一整段文字会完整出现在文件夹名中")
-            elif new_rule == "charset":
-                block["chars"] = st.text_input("字符集（允许的字符）",
-                                               value=block.get("chars", ""),
-                                               key=f"_sr_blk_chars_{i}",
-                                               placeholder="如 0123456789；^ 开头=排除")
-                self._render_block_length_inputs(block, i)
-            else:
-                self._render_block_length_inputs(block, i)
-
-            # 标记 + 排序/删除（窄栏用图标按钮，悬停有说明）
-            block["label"] = st.text_input("标记（可选）",
-                                           value=block.get("label", ""),
-                                           key=f"_sr_blk_label_{i}",
-                                           placeholder="给这块起名，如 样本ID")
-            act = st.columns(3)
-            with act[0]:
-                if st.button("↑", key=f"_sr_blk_up_{i}", help="上移",
-                             disabled=(i == 0), use_container_width=True):
+                if st.button("↑", key=f"_sr_blk_up_{gen}_{i}", help="上移", disabled=(i == 0)):
                     blocks[i-1], blocks[i] = blocks[i], blocks[i-1]
                     self._clear_sr_widget_keys("_sr_blk_")
-                    st.session_state["_sr_blk_sel"] = i - 1
+                    st.session_state["_sr_gen"] = gen + 1
                     st.rerun()
-            with act[1]:
-                if st.button("↓", key=f"_sr_blk_dn_{i}", help="下移",
-                             disabled=(i == len(blocks) - 1), use_container_width=True):
+                if st.button("↓", key=f"_sr_blk_dn_{gen}_{i}", help="下移",
+                             disabled=(i == len(blocks) - 1)):
                     blocks[i+1], blocks[i] = blocks[i], blocks[i+1]
                     self._clear_sr_widget_keys("_sr_blk_")
-                    st.session_state["_sr_blk_sel"] = i + 1
+                    st.session_state["_sr_gen"] = gen + 1
                     st.rerun()
-            with act[2]:
-                if st.button("✕", key=f"_sr_blk_del_{i}", help="删除",
-                             disabled=(len(blocks) <= 1), use_container_width=True):
+                if st.button("✕", key=f"_sr_blk_del_{gen}_{i}", help="删除",
+                             disabled=(len(blocks) <= 1)):
                     blocks.pop(i)
                     self._clear_sr_widget_keys("_sr_blk_")
-                    st.session_state["_sr_blk_sel"] = max(0, min(i, len(blocks) - 1))
+                    st.session_state["_sr_gen"] = gen + 1
                     st.rerun()
 
-        if st.button("+ 添加块", key="_sr_blk_add", use_container_width=True):
+        if st.button("+ 添加块", key="_sr_blk_add"):
             blocks.append({"rule": "digits", "count": 1})
             self._clear_sr_widget_keys("_sr_blk_")
-            st.session_state["_sr_blk_sel"] = len(blocks) - 1
+            st.session_state["_sr_gen"] = gen + 1
             st.rerun()
 
         # 测试收进折叠区，平时不占页面高度
@@ -1219,18 +1208,10 @@ class SettingsMixin:
                 st.markdown(f'<div class="vk-rule-regex">正则：{regex.pattern}</div>',
                             unsafe_allow_html=True)
 
-    def _render_scan_rules_panel(self):
-        """自定义读取规则：文件夹 / 图片 / 文本 三个标签页，单条编辑。"""
+    def _render_scan_rules_panel(self, narrow=False):
+        """自定义读取规则：所有配置逐条横排展示，直接修改。"""
         with st.expander("🔍 自定义读取规则", expanded=False):
             st.caption("改完保存，再重新加载文件夹生效。")
-
-            # 取一个真实编号做匹配示例，便于理解规则效果
-            sample_id = str(st.session_state.get('current_id') or '')
-            if not sample_id:
-                groups = st.session_state.get('data_groups') or []
-                if groups:
-                    sample_id = str(groups[0].get('id') or '')
-            sample_id = sample_id or "00012345"
 
             # 初始化工作副本（首次渲染时从已保存规则复制）
             if "_sr_working" not in st.session_state:
@@ -1239,175 +1220,142 @@ class SettingsMixin:
                 ))
             w = st.session_state._sr_working
 
+            # widget key 代次：增删/排序后 +1，避免旧的前端控件状态套到新的一行
+            if "_sr_gen" not in st.session_state:
+                st.session_state["_sr_gen"] = 0
+            gen = st.session_state["_sr_gen"]
+
             # 文件夹识别：块式命名规则（兼容旧 folder_digit_length）
             if "folder_pattern" not in w or not w["folder_pattern"].get("blocks"):
                 digit_len = w.get("folder_digit_length", 8)
                 w["folder_pattern"] = folder_pattern_from_digit_length(digit_len)
             blocks = w["folder_pattern"]["blocks"]
 
-            tab_folder, tab_img, tab_txt = st.tabs(["命名", "图片", "文本"])
+            with st.container(key="sr_rules_wrap"):
+                st.caption("文件夹命名 · 每块：类型 / 长度 / 排序")
+                self._render_folder_blocks_editor(blocks, narrow=narrow, gen=gen)
 
-            with tab_folder:
-                st.caption("按顺序填写文件夹名的每一段。")
-                self._render_folder_blocks_editor(blocks)
+                st.divider()
 
-            with tab_img:
-                st.caption("留空 = 匹配「编号.png」，多后缀用逗号分隔。")
+                st.caption("图片槽位 · 后缀留空 = 匹配「编号.png」")
                 image_slots = w.get("image_slots") or [{"stem_suffixes": [""]}]
                 w["image_slots"] = image_slots
-
-                if len(image_slots) > 1:
-                    opts = list(range(len(image_slots)))
-                    if st.session_state.get("_sr_img_sel") not in opts:
-                        st.session_state["_sr_img_sel"] = opts[0]
-                    sc1, sc2 = st.columns([4, 1])
-                    with sc1:
-                        i = st.selectbox(
-                            "编辑槽位", opts, key="_sr_img_sel",
-                            format_func=lambda n: f"槽位 {n+1}",
+                for i, slot in enumerate(image_slots):
+                    stripped = False
+                    with st.container(horizontal=True, vertical_alignment="center",
+                                      gap="small", key=f"sr_img_row_{gen}_{i}"):
+                        st.markdown(f'<span class="vk-row-no">{i+1}</span>',
+                                    unsafe_allow_html=True)
+                        suffixes_str = ",".join(slot.get("stem_suffixes", [""]))
+                        new_val = st.text_input(
+                            "后缀", value=suffixes_str, key=f"_sr_img_{gen}_{i}",
+                            placeholder="后缀，如 _result（留空=无）",
                             label_visibility="collapsed",
-                        )
-                    with sc2:
-                        if st.button("✕", key="_sr_img_del_cur", help="删除当前槽位"):
+                            help="只填后缀，不要带 .png/.jpg；留空表示直接匹配 编号.png",
+                            width="stretch" if narrow else 190)
+                        parsed = [s.strip() for s in new_val.split(",") if s.strip() and not s.startswith(".")]
+                        cleaned, _stripped = clean_suffix_list(parsed)
+                        parsed = cleaned or parsed
+                        stripped = bool(_stripped)
+
+                        ext_str = ",".join(slot.get("extensions", []))
+                        new_ext = st.text_input(
+                            "扩展名", value=ext_str, key=f"_sr_img_ext_{gen}_{i}",
+                            placeholder="扩展名（留空=全部）",
+                            label_visibility="collapsed",
+                            help="留空支持 png/jpg/jpeg；可填 png,jpg 限定",
+                            width="stretch" if narrow else 170)
+                        parsed_ext = [e.strip().lstrip(".").lower()
+                                      for e in new_ext.split(",") if e.strip().lstrip(".")]
+                        if parsed_ext:
+                            image_slots[i] = {"stem_suffixes": parsed if parsed else [""],
+                                              "extensions": parsed_ext}
+                        else:
+                            image_slots[i] = {"stem_suffixes": parsed if parsed else [""]}
+
+                        if st.button("✕", key=f"_sr_img_del_{gen}_{i}", help="删除此槽位",
+                                     disabled=(len(image_slots) <= 1)):
                             image_slots.pop(i)
                             self._clear_sr_widget_keys("_sr_img_")
-                            st.session_state["_sr_img_sel"] = max(0, min(i, len(image_slots) - 1))
+                            st.session_state["_sr_gen"] = gen + 1
                             st.rerun()
-                else:
-                    i = 0
+                    if stripped:
+                        st.caption(f"槽位 {i+1}：已自动去掉后缀里的扩展名")
 
-                slot = image_slots[i]
-                with st.container(border=True):
-                    suffixes_str = ",".join(slot.get("stem_suffixes", [""]))
-                    new_val = st.text_input(
-                        "文件名后缀",
-                        value=suffixes_str,
-                        key=f"_sr_img_{i}",
-                        placeholder="留空，或填 _result",
-                        help="只填后缀部分，不要带 .png/.jpg；如 _result 表示匹配 编号_result.png"
-                    )
-                    parsed = [s.strip() for s in new_val.split(",") if s.strip() and not s.startswith(".")]
-                    cleaned, _stripped = clean_suffix_list(parsed)
-                    if _stripped:
-                        st.caption("⚠️ 已自动去掉后缀里的扩展名（后缀不应包含 .png/.jpg）")
-                    parsed = cleaned or parsed
-
-                    ext_str = ",".join(slot.get("extensions", []))
-                    new_ext = st.text_input(
-                        "扩展名过滤",
-                        value=ext_str,
-                        key=f"_sr_img_ext_{i}",
-                        placeholder="留空 = png / jpg / jpeg",
-                        help="可选。留空支持全部常见格式；可填 png,jpg 限定范围"
-                    )
-                    parsed_ext = [e.strip().lstrip(".").lower() for e in new_ext.split(",") if e.strip().lstrip(".")]
-                    if parsed_ext:
-                        image_slots[i] = {"stem_suffixes": parsed if parsed else [""],
-                                          "extensions": parsed_ext}
-                    else:
-                        image_slots[i] = {"stem_suffixes": parsed if parsed else [""]}
-
-                    sfx = parsed[0] if parsed else ""
-                    exts = parsed_ext or ["png", "jpg", "jpeg"]
-                    more = " 等" if len(parsed) > 1 else ""
-                    st.markdown(
-                        f'<div class="vk-slot-preview">匹配示例：'
-                        f'<code>{sample_id}{sfx}.{exts[0]}</code>{more}'
-                        f'（扩展名：{", ".join(exts)}）</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                if st.button("+ 图片槽位", key="_sr_img_add", use_container_width=True):
+                if st.button("+ 图片槽位", key="_sr_img_add"):
                     w["image_slots"].append({"stem_suffixes": [""]})
                     self._clear_sr_widget_keys("_sr_img_")
-                    st.session_state["_sr_img_sel"] = len(w["image_slots"]) - 1
+                    st.session_state["_sr_gen"] = gen + 1
                     st.rerun()
 
-            with tab_txt:
-                st.caption("按后缀读取 .txt，与文件夹名无关。")
+                st.divider()
+
+                st.caption("文本槽位 · 按后缀读取 .txt，与文件夹名无关")
                 text_slots = w.get("text_slots") or [{"suffixes": [""]}]
                 w["text_slots"] = text_slots
-
-                if len(text_slots) > 1:
-                    opts = list(range(len(text_slots)))
-                    if st.session_state.get("_sr_txt_sel") not in opts:
-                        st.session_state["_sr_txt_sel"] = opts[0]
-                    sc1, sc2 = st.columns([4, 1])
-                    with sc1:
-                        i = st.selectbox(
-                            "编辑文本框", opts, key="_sr_txt_sel",
-                            format_func=lambda n: f"文本框 {n+1}",
+                for i, slot in enumerate(text_slots):
+                    with st.container(horizontal=True, vertical_alignment="center",
+                                      gap="small", key=f"sr_txt_row_{gen}_{i}"):
+                        st.markdown(f'<span class="vk-row-no">{i+1}</span>',
+                                    unsafe_allow_html=True)
+                        suffixes_str = ",".join(slot.get("suffixes", []))
+                        new_val = st.text_input(
+                            "后缀", value=suffixes_str, key=f"_sr_txt_{gen}_{i}",
+                            placeholder="后缀，如 _ZH,_CH",
                             label_visibility="collapsed",
-                        )
-                    with sc2:
-                        if st.button("✕", key="_sr_txt_del_cur", help="删除当前文本框"):
+                            help="查找以该后缀结尾的 .txt，多个用英文逗号分隔",
+                            width="stretch" if narrow else 300)
+                        parsed = [s.strip() for s in new_val.split(",") if s.strip()]
+                        text_slots[i] = {"suffixes": parsed}
+                        if st.button("✕", key=f"_sr_txt_del_{gen}_{i}", help="删除此文本框",
+                                     disabled=(len(text_slots) <= 1)):
                             text_slots.pop(i)
                             self._clear_sr_widget_keys("_sr_txt_")
-                            st.session_state["_sr_txt_sel"] = max(0, min(i, len(text_slots) - 1))
+                            st.session_state["_sr_gen"] = gen + 1
                             st.rerun()
-                else:
-                    i = 0
 
-                slot = text_slots[i]
-                with st.container(border=True):
-                    suffixes_str = ",".join(slot.get("suffixes", []))
-                    new_val = st.text_input(
-                        "文件名后缀",
-                        value=suffixes_str,
-                        key=f"_sr_txt_{i}",
-                        placeholder="如 _ZH,_CH",
-                        help="查找以该后缀结尾的 .txt，多个用英文逗号分隔"
-                    )
-                    parsed = [s.strip() for s in new_val.split(",") if s.strip()]
-                    text_slots[i] = {"suffixes": parsed}
-
-                    sfx = parsed[0] if parsed else ""
-                    more = " 等" if len(parsed) > 1 else ""
-                    st.markdown(
-                        f'<div class="vk-slot-preview">匹配示例：'
-                        f'<code>{sample_id}{sfx}.txt</code>{more}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                if st.button("+ 文本框", key="_sr_txt_add", use_container_width=True):
+                if st.button("+ 文本框", key="_sr_txt_add"):
                     w["text_slots"].append({"suffixes": [""]})
                     self._clear_sr_widget_keys("_sr_txt_")
-                    st.session_state["_sr_txt_sel"] = len(w["text_slots"]) - 1
+                    st.session_state["_sr_gen"] = gen + 1
                     st.rerun()
 
-            st.divider()
+                st.divider()
 
-            # ---- 保存 / 恢复默认 ----
-            if st.button("💾 保存规则", use_container_width=True, key="_sr_save", type="primary"):
-                blocks = json.loads(json.dumps(w.get("folder_pattern", {}).get("blocks", [])))
-                if not blocks:
-                    st.error("文件夹命名规则不能为空")
-                else:
-                    regex, err = build_folder_pattern_regex({"blocks": blocks})
-                    if err:
-                        st.error(f"❌ 规则无效：{err}")
-                    else:
-                        digit_len = w.get("folder_digit_length", 8)
-                        if len(blocks) == 1 and blocks[0].get("rule") == "digits" and blocks[0].get("count") is not None:
-                            digit_len = int(blocks[0]["count"])
-                        new_rules = {
-                            "folder_digit_length": digit_len,
-                            "folder_pattern": {"blocks": blocks},
-                            "image_slots": json.loads(json.dumps(w["image_slots"])),
-                            "text_slots": json.loads(json.dumps(w["text_slots"]))
-                        }
-                        if save_scan_rules(new_rules):
-                            st.session_state.scan_rules = new_rules
-                            st.session_state._sr_working = json.loads(json.dumps(new_rules))
-                            st.success("规则已保存，请重新加载文件夹生效")
+                # ---- 保存 / 恢复默认 ----
+                col_save, col_reset = st.columns(2)
+                with col_save:
+                    if st.button("💾 保存规则", use_container_width=True,
+                                 key="_sr_save", type="primary"):
+                        blocks = json.loads(json.dumps(w.get("folder_pattern", {}).get("blocks", [])))
+                        if not blocks:
+                            st.error("文件夹命名规则不能为空")
                         else:
-                            st.error("保存失败，请检查文件权限")
-            if st.button("🔄 恢复默认", use_container_width=True, key="_sr_reset"):
-                st.session_state.scan_rules = json.loads(json.dumps(DEFAULT_SCAN_RULES))
-                st.session_state._sr_working = json.loads(json.dumps(DEFAULT_SCAN_RULES))
-                save_scan_rules(st.session_state.scan_rules)
-                st.rerun()
-
+                            regex, err = build_folder_pattern_regex({"blocks": blocks})
+                            if err:
+                                st.error(f"❌ 规则无效：{err}")
+                            else:
+                                digit_len = w.get("folder_digit_length", 8)
+                                if len(blocks) == 1 and blocks[0].get("rule") == "digits" and blocks[0].get("count") is not None:
+                                    digit_len = int(blocks[0]["count"])
+                                new_rules = {
+                                    "folder_digit_length": digit_len,
+                                    "folder_pattern": {"blocks": blocks},
+                                    "image_slots": json.loads(json.dumps(w["image_slots"])),
+                                    "text_slots": json.loads(json.dumps(w["text_slots"]))
+                                }
+                                if save_scan_rules(new_rules):
+                                    st.session_state.scan_rules = new_rules
+                                    st.session_state._sr_working = json.loads(json.dumps(new_rules))
+                                    st.success("规则已保存，请重新加载文件夹生效")
+                                else:
+                                    st.error("保存失败，请检查文件权限")
+                with col_reset:
+                    if st.button("🔄 恢复默认", use_container_width=True, key="_sr_reset"):
+                        st.session_state.scan_rules = json.loads(json.dumps(DEFAULT_SCAN_RULES))
+                        st.session_state._sr_working = json.loads(json.dumps(DEFAULT_SCAN_RULES))
+                        save_scan_rules(st.session_state.scan_rules)
+                        st.rerun()
     # ── 视图/快捷键/设置面板 ──
 
     def _render_view_mode_toggle(self):
@@ -1693,7 +1641,7 @@ class SettingsMixin:
         self._render_dock_section()
 
         st.divider()
-        self._render_scan_rules_panel()
+        self._render_scan_rules_panel(narrow=(key_prefix == ""))
 
         st.divider()
         self._render_hotkeys_section()

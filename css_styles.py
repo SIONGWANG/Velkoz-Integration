@@ -192,40 +192,20 @@ div.st-key-fbtn_fail button[data-testid="stBaseButton-primary"] { background: #e
 div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { background: #f5c518 !important; }
 div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { color: #4a2f00 !important; }
 
-/* ── 自定义读取规则：标签页压缩（窄栏也能放下 3 个） ── */
-div[data-testid="stTabs"] button[data-baseweb="tab"] {
-    padding: 6px 5px !important;
-}
-div[data-testid="stTabs"] button[data-baseweb="tab"] p {
-    font-size: .72rem !important;
-    white-space: nowrap !important;
-}
-div[data-testid="stTabs"] div[data-baseweb="tab-list"] { gap: 4px !important; }
-
-/* ── 自定义读取规则：说明与示例 ── */
-.vk-rule-tip {
-    border-left: 3px solid #409eff;
-    background: rgba(64,158,255,.08);
-    border-radius: 6px;
-    padding: 7px 9px;
-    font-size: .76rem;
-    line-height: 1.55;
-    margin: 2px 0 8px;
-}
-.vk-rule-tip code {
+/* ── 自定义读取规则：紧凑横排 ── */
+div[class*="st-key-sr_rules_wrap"] { max-width: 620px; }
+.vk-row-no {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%;
     background: rgba(128,128,128,.14);
-    padding: 0 3px;
-    border-radius: 3px;
+    font-size: .68rem; font-weight: 700;
+    flex: 0 0 auto;
 }
-.vk-rule-sample {
-    font-family: Consolas, "Courier New", monospace;
-    font-size: .78rem;
-    background: rgba(128,128,128,.12);
-    border-radius: 5px;
-    padding: 4px 7px;
-    display: inline-block;
-    margin: 2px 0;
-    word-break: break-all;
+div[class*="st-key-sr_blk_row_"] button,
+div[class*="st-key-sr_img_row_"] button,
+div[class*="st-key-sr_txt_row_"] button {
+    min-width: 2rem !important;
+    padding: 0.25rem 0.4rem !important;
 }
 .vk-rule-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 2px 0 4px; }
 .vk-chip {
@@ -247,19 +227,6 @@ div[data-testid="stTabs"] div[data-baseweb="tab-list"] { gap: 4px !important; }
     font-size: .68rem; opacity: .6;
     margin: 2px 0 8px; word-break: break-all;
 }
-
-.vk-blk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
-.vk-blk-no { font-size: .76rem; font-weight: 700; white-space: nowrap; }
-.vk-blk-desc {
-    flex: 1 1 auto; min-width: 0; font-size: .70rem; opacity: .62;
-    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.vk-slot-preview {
-    font-size: .70rem; opacity: .72; line-height: 1.5;
-    background: rgba(128,128,128,.08); border-radius: 5px;
-    padding: 4px 7px; margin-top: 3px; word-break: break-all;
-}
-.vk-slot-preview code { background: rgba(128,128,128,.16); padding: 0 3px; border-radius: 3px; }
 </style>
 """
 
