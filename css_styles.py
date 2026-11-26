@@ -177,7 +177,7 @@ div.st-key-fbtn_unchecked button::before { background: #9ca3af; }
 div.st-key-fbtn_pass button::before { background: #22c55e; }
 div.st-key-fbtn_modified button::before { background: #3b82f6; }
 div.st-key-fbtn_fail button::before { background: #ef4444; }
-div.st-key-fbtn_hold button::before { background: #f59e0b; }
+div.st-key-fbtn_hold button::before { background: #f5c518; }
 
 div[class*="st-key-fbtn_"] button[data-testid="stBaseButton-primary"] {
     color: #fff !important;
@@ -189,7 +189,18 @@ div.st-key-fbtn_unchecked button[data-testid="stBaseButton-primary"] { backgroun
 div.st-key-fbtn_pass button[data-testid="stBaseButton-primary"] { background: #22c55e !important; }
 div.st-key-fbtn_modified button[data-testid="stBaseButton-primary"] { background: #3b82f6 !important; }
 div.st-key-fbtn_fail button[data-testid="stBaseButton-primary"] { background: #ef4444 !important; }
-div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { background: #f59e0b !important; }
+div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { background: #f5c518 !important; }
+div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { color: #4a2f00 !important; }
+
+/* ── 自定义读取规则：标签页压缩（窄栏也能放下 3 个） ── */
+div[data-testid="stTabs"] button[data-baseweb="tab"] {
+    padding: 6px 5px !important;
+}
+div[data-testid="stTabs"] button[data-baseweb="tab"] p {
+    font-size: .72rem !important;
+    white-space: nowrap !important;
+}
+div[data-testid="stTabs"] div[data-baseweb="tab-list"] { gap: 4px !important; }
 
 /* ── 自定义读取规则：说明与示例 ── */
 .vk-rule-tip {
@@ -216,32 +227,6 @@ div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { background: #f
     margin: 2px 0;
     word-break: break-all;
 }
-.vk-rule-hero {
-    border: 1px solid rgba(64,158,255,.25);
-    background: linear-gradient(135deg, rgba(64,158,255,.10), rgba(64,158,255,.03));
-    border-radius: 10px;
-    padding: 10px 11px;
-    margin: 2px 0 10px;
-}
-.vk-rule-hero-title { font-size: .80rem; font-weight: 600; line-height: 1.45; }
-.vk-rule-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 8px 0 6px; }
-.vk-rule-flow-text { font-size: .70rem; opacity: .75; line-height: 1.55; margin: 6px 0 4px; word-break: break-word; }
-.vk-flow-node {
-    font-size: .72rem; padding: 3px 7px; border-radius: 999px;
-    background: rgba(64,158,255,.14); color: #2563eb; white-space: nowrap;
-}
-.vk-flow-arrow { font-size: .72rem; opacity: .55; }
-.vk-rule-hero-note { font-size: .68rem; opacity: .65; line-height: 1.5; }
-
-.vk-rule-sec { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 6px; }
-.vk-rule-sec-num {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 18px; height: 18px; border-radius: 50%;
-    background: #409eff; color: #fff; font-size: .68rem; font-weight: 700;
-}
-.vk-rule-sec-title { font-size: .86rem; font-weight: 700; }
-.vk-rule-sec-hint { font-size: .68rem; opacity: .6; }
-
 .vk-rule-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 2px 0 4px; }
 .vk-chip {
     display: inline-flex; align-items: center; gap: 4px;

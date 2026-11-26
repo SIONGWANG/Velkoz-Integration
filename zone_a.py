@@ -38,7 +38,7 @@ class ZoneAMixin:
                 (qualified_count, "#22c55e", "合格"),
                 (modified_pass_count, "#3b82f6", "修改后合格"),
                 (unqualified_count, "#ef4444", "不合格"),
-                (pending_count, "#f59e0b", "待定"),
+                (pending_count, "#f5c518", "待定"),
                 (unchecked_count, "#cbd5e1", "未检"),
             )
             bar_html = "".join(
