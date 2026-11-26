@@ -28,64 +28,66 @@ class ZoneAMixin:
             pending_count = stats["pending"]
             inspected_count = stats["inspected"]
             pass_rate = stats["pass_rate"]
-            progress = stats["progress"]
 
+            # ── 合格率卡片：堆叠条形图，一眼看出各状态占比 ──
+            def _pct(n):
+                return (n / total_count * 100) if total_count else 0.0
+
+            checked_pct = round(_pct(inspected_count), 1)
+            segments = (
+                (qualified_count, "#22c55e", "合格"),
+                (modified_pass_count, "#3b82f6", "修改后合格"),
+                (unqualified_count, "#ef4444", "不合格"),
+                (pending_count, "#f59e0b", "待定"),
+                (unchecked_count, "#cbd5e1", "未检"),
+            )
+            bar_html = "".join(
+                f'<span title="{label} {n}" style="width:{_pct(n):.2f}%;background:{color}"></span>'
+                for n, color, label in segments
+            )
             st.markdown(
                 f"""
-                <div style="border:1px solid rgba(128,128,128,.22);border-radius:12px;
-                            padding:9px 10px;background:rgba(128,128,128,.06);margin-bottom:6px">
-                  <div style="display:flex;align-items:baseline;justify-content:space-between;
-                              gap:6px;flex-wrap:wrap">
-                    <div style="font-size:.76rem;opacity:.72">实时合格率</div>
-                    <div style="font-size:1.35rem;font-weight:700;line-height:1.1">{pass_rate}%</div>
+                <div class="vk-stat-card">
+                  <div class="vk-stat-head">
+                    <span class="vk-label">实时合格率</span>
+                    <span class="vk-rate">{pass_rate}%</span>
                   </div>
-                  <div style="height:6px;border-radius:4px;background:rgba(128,128,128,.20);
-                              margin:7px 0 8px;overflow:hidden">
-                    <div style="width:{min(100.0, max(0.0, pass_rate))}%;height:100%;
-                                background:linear-gradient(90deg,#22c55e,#3b82f6)"></div>
+                  <div class="vk-stack">{bar_html}</div>
+                  <div class="vk-stat-sub">
+                    <span>已检 <b>{inspected_count}</b> / <b>{total_count}</b></span>
+                    <span>进度 <b>{checked_pct:g}%</b></span>
                   </div>
-                  <div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.75rem;line-height:1.5">
-                    <span title="合格">🟢 <b>{qualified_count}</b></span>
-                    <span title="修改后合格">🔵 <b>{modified_pass_count}</b></span>
-                    <span title="不合格">🔴 <b>{unqualified_count}</b></span>
-                    <span title="待定">🟡 <b>{pending_count}</b></span>
-                    <span title="未检">⚪ <b>{unchecked_count}</b></span>
-                  </div>
-                  <div style="font-size:.68rem;opacity:.62;margin-top:4px">
-                    （合格+修改后合格）/ 已判定，不含未检/待定
-                  </div>
+                  <div class="vk-stat-note" title="合格率 =（合格+修改后合格）/ 已判定，未检/待定不计入">不含未检 / 待定</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            st.progress(progress, text=f"已检 {inspected_count}/{total_count} · {int(progress * 100)}%")
 
-            # 状态筛选：单行 pills（带数量），比 3×2 按钮更省空间
-            filter_options = ["全部", "未检", "合格", "修改后合格", "不合格", "待定"]
-            filter_labels = {
-                "全部": f"全部·{total_count}",
-                "未检": f"未检·{unchecked_count}",
-                "合格": f"合格·{qualified_count}",
-                "修改后合格": f"修改·{modified_pass_count}",
-                "不合格": f"不合格·{unqualified_count}",
-                "待定": f"待定·{pending_count}",
-            }
-            applied_filter = st.session_state.get('_filter_applied')
-            selected_filter = st.pills(
-                "状态筛选",
-                filter_options,
-                selection_mode="single",
-                format_func=lambda opt: filter_labels.get(opt, opt),
-                key="filter_pills",
-                label_visibility="collapsed",
-                required=True,
+            # ── 状态筛选：2×3 按钮，左侧色点 + 数量，选中后整块填色 ──
+            filter_defs = (
+                ("全部", "all", total_count, "全部"),
+                ("未检", "unchecked", unchecked_count, "未检"),
+                ("合格", "pass", qualified_count, "合格"),
+                ("修改后合格", "modified", modified_pass_count, "修改"),
+                ("不合格", "fail", unqualified_count, "不合格"),
+                ("待定", "hold", pending_count, "待定"),
             )
-            if applied_filter is None:
-                st.session_state['_filter_applied'] = selected_filter or "全部"
-            elif selected_filter and selected_filter != applied_filter:
-                st.session_state['_filter_applied'] = selected_filter
-                st.rerun()
-            filter_val = selected_filter or st.session_state.get('filter_pills', '全部')
+            current_filter = st.session_state.get('filter_pills', '全部')
+            if current_filter not in [d[0] for d in filter_defs]:
+                current_filter = '全部'
+            for row_start in (0, 2, 4):
+                cols = st.columns(2)
+                for col, (opt, css_key, count, short) in zip(cols, filter_defs[row_start:row_start + 2]):
+                    with col:
+                        if st.button(
+                            f"{short}  \n**{count}**",
+                            key=f"fbtn_{css_key}",
+                            use_container_width=True,
+                            type="primary" if current_filter == opt else "secondary",
+                        ):
+                            st.session_state.filter_pills = opt
+                            st.rerun()
+            filter_val = st.session_state.get('filter_pills', '全部')
 
             # ── 快速查询 ──
             with st.expander("🔍 快速查询", expanded=False):

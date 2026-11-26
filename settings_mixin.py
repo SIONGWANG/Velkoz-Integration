@@ -1045,18 +1045,21 @@ class SettingsMixin:
     def _render_block_length_inputs(self, block, i):
         """字符类块的长度输入：count（精确）或 min/max（范围），依据块数据自动判断。"""
         if "min" in block or "max" in block:
-            lo = st.number_input("最小长度", min_value=1, max_value=30,
-                                 value=int(block.get("min") or 1),
-                                 key=f"_sr_blk_min_{i}", label_visibility="collapsed")
-            hi = st.number_input("最大长度", min_value=1, max_value=30,
-                                 value=int(block.get("max") or lo),
-                                 key=f"_sr_blk_max_{i}", label_visibility="collapsed")
+            c1, c2 = st.columns(2)
+            with c1:
+                lo = st.number_input("最小", min_value=1, max_value=30,
+                                     value=int(block.get("min") or 1),
+                                     key=f"_sr_blk_min_{i}")
+            with c2:
+                hi = st.number_input("最大", min_value=1, max_value=30,
+                                     value=int(block.get("max") or lo),
+                                     key=f"_sr_blk_max_{i}")
             block["min"], block["max"] = int(lo), int(hi)
             block.pop("count", None)
         else:
-            cnt = st.number_input("长度", min_value=1, max_value=30,
+            cnt = st.number_input("长度（字符数）", min_value=1, max_value=30,
                                   value=int(block.get("count") or 1),
-                                  key=f"_sr_blk_cnt_{i}", label_visibility="collapsed")
+                                  key=f"_sr_blk_cnt_{i}")
             block["count"] = int(cnt)
             block.pop("min", None)
             block.pop("max", None)
@@ -1066,117 +1069,130 @@ class SettingsMixin:
         blocks: 工作副本中的块列表（直接就地修改）。"""
         rule_opts = {
             "digits": "数字 0-9",
-            "lowercase": "小写字母 a-z",
-            "uppercase": "大写字母 A-Z",
-            "letters": "任意字母（含中文）",
-            "alnum": "字母或数字",
-            "literal": "固定字符（值）",
-            "charset": "自定义字符集",
+            "lowercase": "小写 a-z",
+            "uppercase": "大写 A-Z",
+            "letters": "任意字母",
+            "alnum": "字母/数字",
+            "literal": "固定字符",
+            "charset": "字符集",
             "wildcard": "任意字符",
+        }
+        rule_short = {
+            "digits": "数字",
+            "lowercase": "小写",
+            "uppercase": "大写",
+            "letters": "字母",
+            "alnum": "混合",
+            "literal": "固定",
+            "charset": "集合",
+            "wildcard": "任意",
         }
         rule_labels = ["digits", "lowercase", "uppercase", "letters", "alnum",
                        "literal", "charset", "wildcard"]
 
-        # 顶部规则预览：人类化描述 + 正则表达式
+        # 顶部规则预览：彩色块 + 人类化描述 + 正则
         preview_regex, preview_err = build_folder_pattern_regex({"blocks": blocks})
         if preview_err:
             st.warning(f"⚠️ 当前规则不完整：{preview_err}")
         else:
-            desc = " + ".join(self._describe_block(b, rule_opts) for b in blocks)
-            st.caption(f"📐 当前规则：{desc}")
-            st.caption(f"🔍 正则：{preview_regex.pattern}")
+            chips = []
+            for i, b in enumerate(blocks):
+                if i:
+                    chips.append('<span class="vk-chip-plus">+</span>')
+                chips.append(
+                    f'<span class="vk-chip"><b>{i+1}</b>'
+                    f'{self._describe_block(b, rule_opts)}</span>'
+                )
+            st.markdown(
+                f'<div class="vk-rule-chips">{"".join(chips)}</div>'
+                f'<div class="vk-rule-regex">正则：{preview_regex.pattern}</div>',
+                unsafe_allow_html=True,
+            )
 
         for i in range(len(blocks)):
             block = blocks[i]
             with st.container(border=True):
-                # 类型 + 块描述
-                tcol1, tcol2 = st.columns([1.3, 3.0])
-                with tcol1:
-                    cur_rule = block.get("rule", "digits")
-                    idx = rule_labels.index(cur_rule) if cur_rule in rule_labels else 0
-                    new_rule = st.selectbox(f"块 {i+1} 类型", rule_labels,
-                                            index=idx, key=f"_sr_blk_rule_{i}",
-                                            format_func=lambda r, ro=rule_opts: ro.get(r, r),
-                                            label_visibility="collapsed")
-                    # 类型变更时清空该块的内容/长度 key，避免旧值残留导致测试误判
-                    if new_rule != cur_rule:
-                        block["rule"] = new_rule
-                        block.pop("value", None)
-                        block.pop("chars", None)
-                        for k in (f"_sr_blk_val_{i}", f"_sr_blk_chars_{i}",
-                                  f"_sr_blk_cnt_{i}", f"_sr_blk_min_{i}", f"_sr_blk_max_{i}"):
-                            st.session_state.pop(k, None)
-                        st.rerun()
-                with tcol2:
-                    st.markdown(self._describe_block(block, rule_opts)
-                                if new_rule == cur_rule
-                                else rule_opts.get(new_rule, new_rule))
-                    st.caption(rule_opts.get(new_rule, new_rule))
+                # 块标题：编号 + 当前内容描述
+                st.markdown(
+                    f'<div class="vk-blk-head"><span class="vk-blk-no">块 {i+1}</span>'
+                    f'<span class="vk-blk-desc">{self._describe_block(block, rule_opts)}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                cur_rule = block.get("rule", "digits")
+                idx = rule_labels.index(cur_rule) if cur_rule in rule_labels else 0
+                new_rule = st.selectbox(f"块 {i+1} 字符类型", rule_labels,
+                                        index=idx, key=f"_sr_blk_rule_{i}",
+                                        format_func=lambda r, rs=rule_short: rs.get(r, r),
+                                        label_visibility="collapsed")
+                # 类型变更时清空该块的内容/长度 key，避免旧值残留导致测试误判
+                if new_rule != cur_rule:
+                    block["rule"] = new_rule
+                    block.pop("value", None)
+                    block.pop("chars", None)
+                    for k in (f"_sr_blk_val_{i}", f"_sr_blk_chars_{i}",
+                              f"_sr_blk_cnt_{i}", f"_sr_blk_min_{i}", f"_sr_blk_max_{i}"):
+                        st.session_state.pop(k, None)
+                    st.rerun()
 
                 # 内容/长度输入（随类型变化）
                 if new_rule == "literal":
-                    block["value"] = st.text_input("固定字符串（原样匹配）",
+                    block["value"] = st.text_input("固定字符串",
                                                    value=block.get("value", ""),
                                                    key=f"_sr_blk_val_{i}",
                                                    placeholder="例如 ABC / 样本 / F-01",
-                                                   help="这一整段文字会原样出现在文件夹名中")
+                                                   help="原样匹配：这一整段文字会完整出现在文件夹名中")
                 elif new_rule == "charset":
-                    cc2 = st.columns([2, 1])
-                    with cc2[0]:
-                        block["chars"] = st.text_input("字符集（可输入一组允许字符）",
-                                                       value=block.get("chars", ""),
-                                                       key=f"_sr_blk_chars_{i}",
-                                                       placeholder="例如 0123456789 或 ^0x（^ 开头=排除）",
-                                                       help="^ 开头表示排除这些字符，长度仍需填写")
-                    with cc2[1]:
-                        self._render_block_length_inputs(block, i)
+                    block["chars"] = st.text_input("字符集（允许的字符）",
+                                                   value=block.get("chars", ""),
+                                                   key=f"_sr_blk_chars_{i}",
+                                                   placeholder="如 0123456789；^ 开头=排除")
+                    self._render_block_length_inputs(block, i)
                 else:
                     self._render_block_length_inputs(block, i)
 
-                # 标记 + 操作按钮
-                act = st.columns([3.4, 1, 1, 1])
+                # 标记 + 排序/删除（窄栏用图标按钮，悬停有说明）
+                block["label"] = st.text_input("标记（可选）",
+                                               value=block.get("label", ""),
+                                               key=f"_sr_blk_label_{i}",
+                                               placeholder="给这块起名，如 样本ID")
+                act = st.columns(3)
                 with act[0]:
-                    block["label"] = st.text_input("标记（可选）",
-                                                   value=block.get("label", ""),
-                                                   key=f"_sr_blk_label_{i}",
-                                                   placeholder="如 样本ID",
-                                                   label_visibility="collapsed")
-                with act[1]:
-                    if i > 0 and st.button("↑", key=f"_sr_blk_up_{i}", help="上移"):
+                    if st.button("↑", key=f"_sr_blk_up_{i}", help="上移",
+                                 disabled=(i == 0), use_container_width=True):
                         blocks[i-1], blocks[i] = blocks[i], blocks[i-1]
                         self._clear_sr_widget_keys()
                         st.rerun()
-                with act[2]:
-                    if i < len(blocks)-1 and st.button("↓", key=f"_sr_blk_dn_{i}", help="下移"):
+                with act[1]:
+                    if st.button("↓", key=f"_sr_blk_dn_{i}", help="下移",
+                                 disabled=(i == len(blocks) - 1), use_container_width=True):
                         blocks[i+1], blocks[i] = blocks[i], blocks[i+1]
                         self._clear_sr_widget_keys()
                         st.rerun()
-                with act[3]:
-                    if len(blocks) > 1 and st.button("✕", key=f"_sr_blk_del_{i}", help="删除"):
+                with act[2]:
+                    if st.button("✕", key=f"_sr_blk_del_{i}", help="删除",
+                                 disabled=(len(blocks) <= 1), use_container_width=True):
                         blocks.pop(i)
                         self._clear_sr_widget_keys()
                         st.rerun()
 
         # 添加块 + 生成有效示例
-        cc = st.columns([1, 2])
-        with cc[0]:
-            if st.button("+ 添加块", key="_sr_blk_add"):
-                blocks.append({"rule": "digits", "count": 1})
-                self._clear_sr_widget_keys()
-                st.rerun()
-        with cc[1]:
-            if st.button("🎲 自动填入有效示例", key="_sr_blk_gen",
-                         help="按当前规则自动生成一串文件夹名填入测试框，便于验证"):
-                sample = "".join(self._generate_block_sample(b) for b in blocks)
-                st.session_state["_sr_blk_test"] = sample
-                st.rerun()
+        if st.button("+ 添加块", key="_sr_blk_add", use_container_width=True):
+            blocks.append({"rule": "digits", "count": 1})
+            self._clear_sr_widget_keys()
+            st.rerun()
+        if st.button("🎲 填入示例", key="_sr_blk_gen", use_container_width=True,
+                     help="按当前规则生成一个合法文件夹名，填入下方测试框"):
+            sample = "".join(self._generate_block_sample(b) for b in blocks)
+            st.session_state["_sr_blk_test"] = sample
+            st.rerun()
 
         # 实时测试
+        sample = "".join(self._generate_block_sample(b) for b in blocks)
         regex, err = build_folder_pattern_regex({"blocks": blocks})
         test_name = st.text_input("🧪 测试文件夹名",
                                   key="_sr_blk_test",
-                                  placeholder="输入示例文件夹名，即时判断是否匹配",
-                                  help="输入后立刻显示是否匹配当前规则；可点击上方「自动填入有效示例」")
+                                  placeholder=f"例如 {sample}",
+                                  help="输入后立刻显示是否匹配当前规则；也可点上方「填入示例」")
         if err:
             st.error(f"⚠️ 规则无效：{err}")
         elif test_name.strip():
@@ -1184,12 +1200,28 @@ class SettingsMixin:
                 st.success(f"✅ 匹配：「{test_name.strip()}」符合当前规则")
             else:
                 st.error(f"❌ 不匹配：「{test_name.strip()}」不符合当前规则")
-                st.caption(f"当前规则正则为 {regex.pattern}，可参考上方卡片描述检查长度/字符类型")
+                st.caption(f"当前规则正则为 {regex.pattern}，可参考上方块描述检查长度/字符类型")
 
     def _render_scan_rules_panel(self):
-        """自定义读取规则面板：文件夹位数、图片槽位、文本槽位"""
+        """自定义读取规则面板：文件夹命名、图片槽位、文本槽位"""
         with st.expander("🔍 自定义读取规则", expanded=False):
-            st.caption("修改后需重新点击「加载文件夹」生效。")
+            st.markdown(
+                """
+                <div class="vk-rule-hero">
+                  <div class="vk-rule-hero-title">读取规则：文件夹 → 图片 + 文本</div>
+                  <div class="vk-rule-hero-note">改完保存，再重新「加载文件夹」生效。</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # 取一个真实编号做匹配示例，便于理解规则效果
+            sample_id = str(st.session_state.get('current_id') or '')
+            if not sample_id:
+                groups = st.session_state.get('data_groups') or []
+                if groups:
+                    sample_id = str(groups[0].get('id') or '')
+            sample_id = sample_id or "00012345"
 
             # 初始化工作副本（首次渲染时从已保存规则复制）
             if "_sr_working" not in st.session_state:
@@ -1204,34 +1236,60 @@ class SettingsMixin:
                 w["folder_pattern"] = folder_pattern_from_digit_length(digit_len)
             blocks = w["folder_pattern"]["blocks"]
 
-            st.write("**文件夹命名规则**")
+            # ---- 1. 文件夹命名 ----
+            st.markdown(
+                '<div class="vk-rule-sec"><span class="vk-rule-sec-num">1</span>'
+                '<span class="vk-rule-sec-title">文件夹命名</span>'
+                '<span class="vk-rule-sec-hint">决定哪些文件夹会被读取</span></div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("每段先选类型，再填长度。例：4 位数字 +「_」+ 姓名。")
             self._render_folder_blocks_editor(blocks)
 
-            # ---- 图片读取规则 ----
-            st.write("**图片读取规则**")
+            st.divider()
+
+            # ---- 2. 图片槽位 ----
+            st.markdown(
+                '<div class="vk-rule-sec"><span class="vk-rule-sec-num">2</span>'
+                '<span class="vk-rule-sec-title">图片槽位</span>'
+                '<span class="vk-rule-sec-hint">在每个文件夹里按编号找图</span></div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("留空 = 匹配「编号.png」；多个后缀用逗号分隔。")
             image_slots = w.get("image_slots", [])
             for i in range(len(image_slots)):
                 slot = image_slots[i]
-                col1, col2 = st.columns([5, 1])
-                with col1:
+                with st.container(border=True):
+                    head1, head2 = st.columns([4, 1])
+                    with head1:
+                        st.markdown(f"**🖼️ 槽位 {i+1}**")
+                    with head2:
+                        if len(image_slots) > 1 and st.button("✕", key=f"_sr_img_del_{i}", help="删除此槽位"):
+                            w["image_slots"].pop(i)
+                            self._clear_sr_widget_keys()
+                            st.rerun()
+
                     suffixes_str = ",".join(slot.get("stem_suffixes", [""]))
                     new_val = st.text_input(
-                        f"图片槽位 {i+1}（名称后缀，逗号分隔）",
+                        "文件名后缀",
                         value=suffixes_str,
                         key=f"_sr_img_{i}",
-                        help="仅填写文件名的后缀部分（不包含 .png/.jpg 等扩展名），如 _result。空=直接匹配 {id}.png/.jpg/.jpeg"
+                        placeholder="留空，或填 _result",
+                        help="只填后缀部分，不要带 .png/.jpg；如 _result 表示匹配 编号_result.png"
                     )
                     parsed = [s.strip() for s in new_val.split(",") if s.strip() and not s.startswith(".")]
                     cleaned, _stripped = clean_suffix_list(parsed)
                     if _stripped:
-                        st.caption("⚠️ 已自动剥离后缀中的扩展名（后缀不应包含 .png/.jpg）")
+                        st.caption("⚠️ 已自动去掉后缀里的扩展名（后缀不应包含 .png/.jpg）")
                     parsed = cleaned or parsed
+
                     ext_str = ",".join(slot.get("extensions", []))
                     new_ext = st.text_input(
-                        f"槽位 {i+1} 扩展名过滤（可选）",
+                        "扩展名过滤",
                         value=ext_str,
                         key=f"_sr_img_ext_{i}",
-                        help="留空=支持 .png/.jpg/.jpeg 全部；可限定如 png,jpg。同名不同扩展名时按此处精确匹配"
+                        placeholder="留空 = png / jpg / jpeg",
+                        help="可选。留空支持全部常见格式；可填 png,jpg 限定范围"
                     )
                     parsed_ext = [e.strip().lstrip(".").lower() for e in new_ext.split(",") if e.strip().lstrip(".")]
                     if parsed_ext:
@@ -1239,92 +1297,102 @@ class SettingsMixin:
                                           "extensions": parsed_ext}
                     else:
                         image_slots[i] = {"stem_suffixes": parsed if parsed else [""]}
-                with col2:
-                    st.write("")
-                    if len(image_slots) > 1:
-                        if st.button("−", key=f"_sr_img_del_{i}"):
-                            w["image_slots"].pop(i)
-                            self._clear_sr_widget_keys()
-                            st.rerun()
 
-            col_img1, col_img2 = st.columns([1, 4])
-            with col_img1:
-                if st.button("+ 添加图片槽位", key="_sr_img_add"):
-                    w["image_slots"].append({"stem_suffixes": [""]})
-                    self._clear_sr_widget_keys()
-                    st.rerun()
-            with col_img2:
-                st.caption(f"匹配规则: {{文件夹名}}{{后缀}}，扩展名自动识别 png/jpg/jpeg")
+                    sfx = parsed[0] if parsed else ""
+                    exts = parsed_ext or ["png", "jpg", "jpeg"]
+                    more = " 等" if len(parsed) > 1 else ""
+                    st.markdown(
+                        f'<div class="vk-slot-preview">匹配示例：'
+                        f'<code>{sample_id}{sfx}.{exts[0]}</code>{more}'
+                        f'（扩展名：{", ".join(exts)}）</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            if st.button("+ 图片槽位", key="_sr_img_add", use_container_width=True):
+                w["image_slots"].append({"stem_suffixes": [""]})
+                self._clear_sr_widget_keys()
+                st.rerun()
 
             st.divider()
 
-            # ---- 文本读取规则 ----
-            st.write("**文本读取规则**")
+            # ---- 3. 文本槽位 ----
+            st.markdown(
+                '<div class="vk-rule-sec"><span class="vk-rule-sec-num">3</span>'
+                '<span class="vk-rule-sec-title">文本槽位</span>'
+                '<span class="vk-rule-sec-hint">按后缀找 .txt</span></div>',
+                unsafe_allow_html=True,
+            )
+            st.caption("读取以所填后缀结尾的 .txt（与文件夹名无关）。")
             text_slots = w.get("text_slots", [])
             for i in range(len(text_slots)):
                 slot = text_slots[i]
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    suffixes_str = ",".join(slot.get("suffixes", []))
-                    new_val = st.text_input(
-                        f"文本框 {i+1}（名称后缀，逗号分隔）",
-                        value=suffixes_str,
-                        key=f"_sr_txt_{i}",
-                        help="查找以该后缀结尾的 .txt 文件，如 _ZH,_CH 表示匹配 xxx_ZH.txt 或 xxx_CH.txt"
-                    )
-                    parsed = [s.strip() for s in new_val.split(",") if s.strip()]
-                    text_slots[i] = {"suffixes": parsed}
-                with col2:
-                    st.write("")
-                    if len(text_slots) > 1:
-                        if st.button("−", key=f"_sr_txt_del_{i}"):
+                with st.container(border=True):
+                    head1, head2 = st.columns([4, 1])
+                    with head1:
+                        st.markdown(f"**📝 文本框 {i+1}**")
+                    with head2:
+                        if len(text_slots) > 1 and st.button("✕", key=f"_sr_txt_del_{i}", help="删除此文本框"):
                             w["text_slots"].pop(i)
                             self._clear_sr_widget_keys()
                             st.rerun()
 
-            col_txt1, col_txt2 = st.columns([1, 4])
-            with col_txt1:
-                if st.button("+ 添加文本框", key="_sr_txt_add"):
-                    w["text_slots"].append({"suffixes": [""]})
-                    self._clear_sr_widget_keys()
-                    st.rerun()
-            with col_txt2:
-                st.caption("匹配规则: 找到以「任一后缀」结尾的 .txt，与文件夹名无关")
+                    suffixes_str = ",".join(slot.get("suffixes", []))
+                    new_val = st.text_input(
+                        "文件名后缀",
+                        value=suffixes_str,
+                        key=f"_sr_txt_{i}",
+                        placeholder="如 _ZH,_CH",
+                        help="查找以该后缀结尾的 .txt，多个用英文逗号分隔"
+                    )
+                    parsed = [s.strip() for s in new_val.split(",") if s.strip()]
+                    text_slots[i] = {"suffixes": parsed}
+
+                    sfx = parsed[0] if parsed else ""
+                    more = " 等" if len(parsed) > 1 else ""
+                    st.markdown(
+                        f'<div class="vk-slot-preview">匹配示例：'
+                        f'<code>{sample_id}{sfx}.txt</code>{more}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            if st.button("+ 文本框", key="_sr_txt_add", use_container_width=True):
+                w["text_slots"].append({"suffixes": [""]})
+                self._clear_sr_widget_keys()
+                st.rerun()
 
             st.divider()
 
-            col_save, col_reset = st.columns(2)
-            with col_save:
-                if st.button("💾 保存规则", use_container_width=True, key="_sr_save"):
-                    blocks = json.loads(json.dumps(w.get("folder_pattern", {}).get("blocks", [])))
-                    if not blocks:
-                        st.error("文件夹命名规则不能为空")
+            # ---- 保存 / 恢复默认 ----
+            st.caption("保存后写入 scan_rules.json，重新加载文件夹时按新规则读取。")
+            if st.button("💾 保存规则", use_container_width=True, key="_sr_save", type="primary"):
+                blocks = json.loads(json.dumps(w.get("folder_pattern", {}).get("blocks", [])))
+                if not blocks:
+                    st.error("文件夹命名规则不能为空")
+                else:
+                    regex, err = build_folder_pattern_regex({"blocks": blocks})
+                    if err:
+                        st.error(f"❌ 规则无效：{err}")
                     else:
-                        regex, err = build_folder_pattern_regex({"blocks": blocks})
-                        if err:
-                            st.error(f"❌ 规则无效：{err}")
+                        digit_len = w.get("folder_digit_length", 8)
+                        if len(blocks) == 1 and blocks[0].get("rule") == "digits" and blocks[0].get("count") is not None:
+                            digit_len = int(blocks[0]["count"])
+                        new_rules = {
+                            "folder_digit_length": digit_len,
+                            "folder_pattern": {"blocks": blocks},
+                            "image_slots": json.loads(json.dumps(w["image_slots"])),
+                            "text_slots": json.loads(json.dumps(w["text_slots"]))
+                        }
+                        if save_scan_rules(new_rules):
+                            st.session_state.scan_rules = new_rules
+                            st.session_state._sr_working = json.loads(json.dumps(new_rules))
+                            st.success("规则已保存，请重新加载文件夹生效")
                         else:
-                            digit_len = w.get("folder_digit_length", 8)
-                            if len(blocks) == 1 and blocks[0].get("rule") == "digits" and blocks[0].get("count") is not None:
-                                digit_len = int(blocks[0]["count"])
-                            new_rules = {
-                                "folder_digit_length": digit_len,
-                                "folder_pattern": {"blocks": blocks},
-                                "image_slots": json.loads(json.dumps(w["image_slots"])),
-                                "text_slots": json.loads(json.dumps(w["text_slots"]))
-                            }
-                            if save_scan_rules(new_rules):
-                                st.session_state.scan_rules = new_rules
-                                st.session_state._sr_working = json.loads(json.dumps(new_rules))
-                                st.success("规则已保存，请重新加载文件夹生效")
-                            else:
-                                st.error("保存失败，请检查文件权限")
-            with col_reset:
-                if st.button("🔄 恢复默认", use_container_width=True, key="_sr_reset"):
-                    st.session_state.scan_rules = json.loads(json.dumps(DEFAULT_SCAN_RULES))
-                    st.session_state._sr_working = json.loads(json.dumps(DEFAULT_SCAN_RULES))
-                    save_scan_rules(st.session_state.scan_rules)
-                    st.rerun()
+                            st.error("保存失败，请检查文件权限")
+            if st.button("🔄 恢复默认", use_container_width=True, key="_sr_reset"):
+                st.session_state.scan_rules = json.loads(json.dumps(DEFAULT_SCAN_RULES))
+                st.session_state._sr_working = json.loads(json.dumps(DEFAULT_SCAN_RULES))
+                save_scan_rules(st.session_state.scan_rules)
+                st.rerun()
 
     # ── 视图/快捷键/设置面板 ──
 
