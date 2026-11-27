@@ -240,8 +240,9 @@ class SettingsMixin:
         (function() {{
             const doc = window.parent.document;
 
-            // 二级分类快捷键映射
+            // 二级分类快捷键映射：写到父窗口全局，旧监听器也能读到最新配置
             const l2Shortcuts = {l2_shortcuts};
+            window.parent.__vkL2Shortcuts = l2Shortcuts;
 
             // 取按钮文本：innerText 对折叠/隐藏元素可能为空，回退 textContent
             function btnText(el) {{
@@ -258,15 +259,39 @@ class SettingsMixin:
                 return null;
             }}
 
+            // 去掉「🟢」前缀和「[D]」后缀，得到纯分类名
+            function l2Label(text) {{
+                return (text || '')
+                    .replace(/🟢/g, '')
+                    .replace(/\s*\[[A-Z]\]\s*$/, '')
+                    .trim();
+            }}
+
             function findL2Button(key) {{
-                const mapping = l2Shortcuts[key];
-                if (!mapping) return null;
-                // 查找所有按钮，匹配二级分类名称
-                const btns = doc.getElementsByTagName('button');
-                for (let i = 0; i < btns.length; i++) {{
-                    const text = btnText(btns[i]).trim();
-                    // 匹配格式: "🟢 分类名  [快捷键]" 或 "🟢 分类名"
-                    if (text.includes(mapping) && text.includes('🟢')) return btns[i];
+                const name = (window.parent.__vkL2Shortcuts || {{}})[key];
+                if (!name) return null;
+
+                // 优先只看 pills 按钮，避免误点其它带分类名的按钮
+                let candidates = doc.querySelectorAll('button[data-testid^="stBaseButton-pills"]');
+                if (!candidates.length) candidates = doc.getElementsByTagName('button');
+
+                let loose = null;
+                for (let i = 0; i < candidates.length; i++) {{
+                    const text = btnText(candidates[i]).trim();
+                    if (!text) continue;
+                    if (l2Label(text) !== name) continue;
+                    // 文本带 [快捷键] 标记时，要求标记与当前按键一致
+                    if (!/\[[A-Z]\]\s*$/.test(text)) {{ if (!loose) loose = candidates[i]; continue; }}
+                    if (text.endsWith('[' + key + ']')) return candidates[i];
+                }}
+                if (loose) return loose;
+
+                // 兼容旧渲染：分类名后面可能还有额外文字，退化为包含匹配
+                for (let i = 0; i < candidates.length; i++) {{
+                    const text = btnText(candidates[i]).trim();
+                    if (text.includes('🟢') && text.includes(name) && !/\[[A-Z]\]\s*$/.test(text)) {{
+                        return candidates[i];
+                    }}
                 }}
                 return null;
             }}
@@ -278,6 +303,25 @@ class SettingsMixin:
                 return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
             }}
 
+            // 中文输入法激活时 e.key 可能是 Process / Unidentified / 空，用物理键位兜底
+            function keyName(e) {{
+                let k = (e.key || '').toUpperCase();
+                if (k === '' || k === 'PROCESS' || k === 'UNIDENTIFIED' || e.keyCode === 229) {{
+                    const code = e.code || '';
+                    if (code.indexOf('Key') === 0) k = code.slice(3).toUpperCase();
+                }}
+                return k;
+            }}
+
+            // 已选中的 pill 不再点击，避免快捷键重复按下把分类取消
+            function isPressed(btn) {{
+                const testid = btn.getAttribute('data-testid') || '';
+                if (testid.indexOf('Active') >= 0) return true;
+                return btn.getAttribute('aria-checked') === 'true'
+                    || btn.getAttribute('aria-selected') === 'true'
+                    || btn.getAttribute('aria-pressed') === 'true';
+            }}
+
             // 仅当真正命中按钮并触发时才阻止默认行为；查不到按钮则不改动默认行为
             function clickIfBtn(test) {{
                 const btn = findBtn(test);
@@ -287,15 +331,23 @@ class SettingsMixin:
 
             function handleHotkeys(e) {{
                 try {{
+                    // Ctrl/Alt/Meta 组合键交给浏览器（如 Ctrl+D 收藏、Ctrl+F 查找）
+                    if (e.ctrlKey || e.metaKey || e.altKey) return;
                     if (isEditable(doc.activeElement)) return;
 
-                    const key = (e.key || '').toUpperCase();
+                    const key = keyName(e);
+                    const l2Map = window.parent.__vkL2Shortcuts || {{}};
 
                     // 二级分类快捷键（仅在有映射时生效）
-                    if (l2Shortcuts[key]) {{
+                    if (l2Map[key]) {{
                         const btn = findL2Button(key);
-                        if (btn && !btn.disabled) {{ e.preventDefault(); btn.click(); }}
-                        return;
+                        if (btn && !btn.disabled) {{
+                            e.preventDefault();
+                            // 长按只算一次，避免反复切换；已选中则不重复点击（pills 再点一次会取消）
+                            if (!e.repeat && !isPressed(btn)) btn.click();
+                            return;
+                        }}
+                        // 找不到按钮时不吞键，继续尝试其它快捷键
                     }}
 
                     // 提交并下一条 — 空格

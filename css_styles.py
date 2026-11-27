@@ -192,6 +192,17 @@ div.st-key-fbtn_fail button[data-testid="stBaseButton-primary"] { background: #e
 div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { background: #f5c518 !important; }
 div.st-key-fbtn_hold button[data-testid="stBaseButton-primary"] { color: #4a2f00 !important; }
 
+/* A区：导出「按二级分类」勾选框，窄栏内允许换行，不撑破布局 */
+div[class*="st-key-export_by_l2_cb"] label {
+    white-space: normal !important;
+    align-items: flex-start !important;
+    line-height: 1.25 !important;
+}
+div[class*="st-key-export_by_l2_cb"] label p {
+    font-size: .78rem !important;
+    word-break: break-word !important;
+}
+
 /* ── 自定义读取规则：紧凑横排 ── */
 div[class*="st-key-sr_rules_wrap"] { max-width: 620px; }
 .vk-row-no {

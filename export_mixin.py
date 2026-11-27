@@ -1,6 +1,7 @@
 # export_mixin.py — 导出/弹窗方法，提取自 app.py
 import streamlit as st
 import os
+import re
 import time
 import shutil
 import logging
@@ -12,6 +13,30 @@ from utils import BASE_DIR, auto_rotate_image
 from disk_io import scan_files_from_disk
 from export_utils import collect_reject_folders, verify_exported_data as _export_verify
 from easter_eggs import on_export_complete
+
+L2_UNCLASSIFIED = "_未分类"
+
+
+def safe_l2_folder(raw_value):
+    """把 CSV 的「二级」转成可用的文件夹名。
+
+    空值 / NaN 归入 `_未分类`；Windows 不允许的字符替换为下划线；
+    去掉首尾空格和结尾的点，避免资源管理器无法打开。
+    """
+    if raw_value is None:
+        name = ""
+    else:
+        try:
+            if pd.isna(raw_value):
+                name = ""
+            else:
+                name = str(raw_value).strip()
+        except (TypeError, ValueError):
+            name = str(raw_value).strip()
+    if not name:
+        return L2_UNCLASSIFIED
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', name).strip().rstrip(". ")
+    return name or L2_UNCLASSIFIED
 
 
 class ExportMixin:
@@ -153,7 +178,7 @@ class ExportMixin:
                 else:
                     st.info("请先在左侧 📂 列表 中加载文件夹")
 
-    def export_qualifies_with_check(self, force=False):
+    def export_qualifies_with_check(self, force=False, export_by_l2=False):
         df = self._get_df()
         if df.empty:
             return False, "❌ 找不到 CSV 记录文件", {}
@@ -232,9 +257,13 @@ class ExportMixin:
                     continue
 
                 try:
-                    dst_path = os.path.join(export_dir, folder_id)
+                    if export_by_l2:
+                        dst_path = os.path.join(export_dir, safe_l2_folder(row.get('二级')), folder_id)
+                    else:
+                        dst_path = os.path.join(export_dir, folder_id)
                     if os.path.exists(dst_path):
                         shutil.rmtree(dst_path)
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                     shutil.copytree(src_path, dst_path, ignore=shutil.ignore_patterns('Thumbs.db', 'desktop.ini', '.DS_Store'))
 
                     ignored_lower = {'thumbs.db', 'desktop.ini', '.ds_store'}
@@ -267,7 +296,7 @@ class ExportMixin:
                 msg += f"\n⚠️ 另有 {missing_count} 个源文件夹不存在（可能已移动或删除）"
             return True, msg, {"export_dir": export_dir}
 
-        verify_result = self.verify_exported_data(qualified_ids - missing_ids, export_dir)
+        verify_result = self.verify_exported_data(qualified_ids - missing_ids, export_dir, export_by_l2=export_by_l2)
 
         missing_msg = f"\n⚠️ {missing_count} 个源文件夹不存在（可能已移动或删除）" if missing_count else ""
 
@@ -276,7 +305,7 @@ class ExportMixin:
         else:
             return True, f"⚠️ 导出成功，但验券失败：{missing_msg}\n{verify_result['message']}", {"export_dir": export_dir}
 
-    def verify_exported_data(self, expected_ids=None, export_dir=None):
+    def verify_exported_data(self, expected_ids=None, export_dir=None, export_by_l2=False):
         if export_dir is None:
             return {"success": False, "message": "❌ 未指定导出文件夹"}
 
@@ -292,7 +321,7 @@ class ExportMixin:
             return {"success": False, "message": f"❌ CSV读取失败: {e}"}
 
         id_to_group = {str(g['id']): g for g in st.session_state.data_groups}
-        return _export_verify(expected_ids, export_dir, id_to_group, df)
+        return _export_verify(expected_ids, export_dir, id_to_group, df, export_by_l2=export_by_l2)
 
     def export_excel_with_images(self, include_screenshots=True):
         csv_file = self._get_active_csv_path()
@@ -436,11 +465,19 @@ class ExportMixin:
                 st.rerun()
 
         # ── 一键导出合格数据 ──
+        export_by_l2 = st.checkbox(
+            "📂 按二级分类分文件夹",
+            value=st.session_state.get('export_by_l2', False),
+            key="export_by_l2_cb",
+            help="勾选后，合格数据按 CSV 的「二级」字段分到子文件夹；没填二级的归入「_未分类」",
+        )
+        st.session_state.export_by_l2 = export_by_l2
+
         if st.button("🚀 一键导出合格数据", use_container_width=True):
             if not st.session_state.data_groups:
                 st.error("请先加载数据源！")
             else:
-                success, msg, result = self.export_qualifies_with_check()
+                success, msg, result = self.export_qualifies_with_check(export_by_l2=export_by_l2)
                 if success:
                     st.session_state._export_result = {'success': True, 'msg': msg, 'export_dir': result.get('export_dir', '')}
                     st.balloons()
@@ -488,7 +525,7 @@ class ExportMixin:
                 with bc2:
                     if st.button("✅ 已知悉，确认导出", use_container_width=True, type="primary"):
                         st.session_state.show_export_confirm = False
-                        success, msg, result = self.export_qualifies_with_check(force=True)
+                        success, msg, result = self.export_qualifies_with_check(force=True, export_by_l2=export_by_l2)
                         if success:
                             st.session_state._export_result = {'success': True, 'msg': msg, 'export_dir': result.get('export_dir', '')}
                             st.balloons()

@@ -99,13 +99,39 @@ def copy_qualified_folders(qualified_df, target_dir, id_to_group=None):
     return count, missing, error_ids
 
 
-def verify_exported_data(expected_ids, export_dir, id_to_group, df):
-    """验证导出结果，返回 {"success": bool, "message": str}"""
+def verify_exported_data(expected_ids, export_dir, id_to_group, df, export_by_l2=False):
+    """验证导出结果，返回 {"success": bool, "message": str}
+
+    export_by_l2=True 时导出结构是「二级分类/图片ID」，
+    需要进入一级子目录查找真正的图片文件夹；否则按平铺结构查找。
+    """
     if not export_dir or not os.path.exists(export_dir):
         return {"success": False, "message": f"❌ 导出文件夹不存在：{export_dir}"}
 
-    exported_folders = [d for d in os.listdir(export_dir) if os.path.isdir(os.path.join(export_dir, d))]
-    exported_ids = set(exported_folders)
+    exported_folder_paths = {}   # 图片ID -> 实际文件夹路径
+    try:
+        entries = os.listdir(export_dir)
+    except OSError as e:
+        return {"success": False, "message": f"❌ 无法读取导出文件夹：{e}"}
+
+    for entry in entries:
+        entry_path = os.path.join(export_dir, entry)
+        if not os.path.isdir(entry_path):
+            continue
+        if export_by_l2:
+            # 顶层是二级分类目录，图片ID文件夹在它下面
+            try:
+                sub_entries = os.listdir(entry_path)
+            except OSError:
+                continue
+            for sub in sub_entries:
+                sub_path = os.path.join(entry_path, sub)
+                if os.path.isdir(sub_path) and sub in expected_ids:
+                    exported_folder_paths[sub] = sub_path
+        elif entry in expected_ids:
+            exported_folder_paths[entry] = entry_path
+
+    exported_ids = set(exported_folder_paths)
 
     missing_in_folder = expected_ids - exported_ids
     extra_in_folder = exported_ids - expected_ids
@@ -114,8 +140,8 @@ def verify_exported_data(expected_ids, export_dir, id_to_group, df):
     missing_files = []
     file_mismatches = []
 
-    for folder_id in exported_folders:
-        dst_path = os.path.join(export_dir, folder_id)
+    for folder_id in sorted(exported_folder_paths):
+        dst_path = exported_folder_paths[folder_id]
         try:
             dst_all = set(os.listdir(dst_path))
         except Exception:
