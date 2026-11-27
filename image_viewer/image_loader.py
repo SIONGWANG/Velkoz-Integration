@@ -13,7 +13,7 @@ import os
 from collections import OrderedDict
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, QSize, Qt
-from PySide6.QtGui import QImageReader, QImageIOHandler, QPixmap
+from PySide6.QtGui import QColorSpace, QImageReader, QImageIOHandler, QPixmap
 
 # 预览图最长边（像素）；足够在 2K/4K 屏上临时铺满，同时解码很快
 PREVIEW_MAX_EDGE = 2048
@@ -21,6 +21,32 @@ PREVIEW_MAX_EDGE = 2048
 FULL_CACHE_BYTES = 512 * 1024 * 1024
 # 预览缓存预算（字节）。单张预览约 4~10MB
 PREVIEW_CACHE_BYTES = 96 * 1024 * 1024
+
+
+def _to_srgb(img):
+    """把带 ICC 的 QImage 统一转换到 sRGB，保证不同色彩空间的原图显示一致。
+
+    Windows 照片等查看器会做色彩管理；Qt 在窗口上的转换取决于后端。
+    这里在解码线程里显式转换，显示链路无论是否支持色彩管理都按 sRGB 输出。
+    """
+    if img is None or img.isNull():
+        return img
+    try:
+        cs = img.colorSpace()
+        if cs.isValid() and cs != QColorSpace(QColorSpace.SRgb):
+            return img.convertedToColorSpace(QColorSpace(QColorSpace.SRgb))
+    except Exception:
+        pass
+    return img
+
+
+def _file_sig(path):
+    """文件签名：mtime_ns + 大小；读取失败返回 None（网络抖动时保留旧缓存）。"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
 class _TaskSignals(QObject):
@@ -68,14 +94,16 @@ class _DecodeTask(QRunnable):
         scaled = size.scaled(QSize(PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE), Qt.KeepAspectRatio)
         reader.setScaledSize(scaled)
         img = reader.read()
-        return None if img.isNull() else img
+        if img.isNull():
+            return None
+        return _to_srgb(img)
 
     def _read_full(self):
         reader = QImageReader(self.path)
         img = reader.read()
         if img.isNull():
             return None, reader.errorString() or "无法解码图片"
-        return img, ""
+        return _to_srgb(img), ""
 
     def run(self):
         try:
@@ -115,6 +143,8 @@ class ImageLoader(QObject):
 
         self._full = OrderedDict()      # path -> QPixmap
         self._preview = OrderedDict()   # path -> QPixmap
+        self._full_sig = {}             # path -> (mtime_ns, size)
+        self._preview_sig = {}          # path -> (mtime_ns, size)
         self._full_bytes = 0
         self._preview_bytes = 0
         self._protected = set()
@@ -144,17 +174,26 @@ class ImageLoader(QObject):
     def cached_pixmap(self, path):
         pm = self._full.get(path)
         if pm is not None:
+            sig = _file_sig(path)
+            # stat 失败（网络抖动）时保留旧缓存；文件确实变了才丢弃
+            if sig is not None and self._full_sig.get(path) != sig:
+                self._drop_full(path)
+                return None
             self._full.move_to_end(path)
         return pm
 
     def cached_preview(self, path):
         pm = self._preview.get(path)
         if pm is not None:
+            sig = _file_sig(path)
+            if sig is not None and self._preview_sig.get(path) != sig:
+                self._drop_preview(path)
+                return None
             self._preview.move_to_end(path)
         return pm
 
     def has_preview(self, path):
-        return path in self._preview
+        return self.cached_preview(path) is not None
 
     def is_wanted(self, path):
         return path in self._wanted_paths
@@ -171,6 +210,27 @@ class ImageLoader(QObject):
         self._protected = {p for p in paths if p}
         self._trim_full()
         self._trim_preview()
+
+    def invalidate_changed(self, paths):
+        """检查给定路径的文件签名，丢弃已变化的缓存；返回发生变化的路径集合。
+
+        只根据路径缓存会导致查看器打开期间图片被外部更新后仍显示旧图。
+        stat 失败时保留旧缓存，避免网络盘短暂抖动把图清空。
+        """
+        changed = set()
+        for path in paths or []:
+            if not path:
+                continue
+            sig = _file_sig(path)
+            if sig is None:
+                continue
+            if path in self._full and self._full_sig.get(path) != sig:
+                self._drop_full(path)
+                changed.add(path)
+            if path in self._preview and self._preview_sig.get(path) != sig:
+                self._drop_preview(path)
+                changed.add(path)
+        return changed
 
     # ── 请求加载 ──
     def request(self, path, want_preview=None):
@@ -223,6 +283,7 @@ class ImageLoader(QObject):
             img = reader.read()
             if img.isNull():
                 return QPixmap()
+            img = _to_srgb(img)
             pm = QPixmap.fromImage(img)
             self._store_full(path, pm)
             return pm
@@ -281,6 +342,7 @@ class ImageLoader(QObject):
         if path in self._preview:
             self._preview_bytes -= self._pm_bytes(self._preview.pop(path))
         self._preview[path] = pm
+        self._preview_sig[path] = _file_sig(path)
         self._preview_bytes += self._pm_bytes(pm)
         self._trim_preview()
 
@@ -288,8 +350,21 @@ class ImageLoader(QObject):
         if path in self._full:
             self._full_bytes -= self._pm_bytes(self._full.pop(path))
         self._full[path] = pm
+        self._full_sig[path] = _file_sig(path)
         self._full_bytes += self._pm_bytes(pm)
         self._trim_full()
+
+    def _drop_full(self, path):
+        pm = self._full.pop(path, None)
+        if pm is not None:
+            self._full_bytes -= self._pm_bytes(pm)
+        self._full_sig.pop(path, None)
+
+    def _drop_preview(self, path):
+        pm = self._preview.pop(path, None)
+        if pm is not None:
+            self._preview_bytes -= self._pm_bytes(pm)
+        self._preview_sig.pop(path, None)
 
     @staticmethod
     def _pm_bytes(pm):
@@ -304,7 +379,7 @@ class ImageLoader(QObject):
             if key in protected:
                 continue
             cache.pop(key, None)
-            return sizes.get(key, 0)
+            return key, sizes.get(key, 0)
         return None
 
     def _trim_full(self):
@@ -312,9 +387,11 @@ class ImageLoader(QObject):
             return
         sizes = {k: self._pm_bytes(v) for k, v in self._full.items()}
         while self._full_bytes > FULL_CACHE_BYTES:
-            freed = self._evict_one(self._full, sizes, self._protected)
-            if freed is None:
+            evicted = self._evict_one(self._full, sizes, self._protected)
+            if evicted is None:
                 break
+            key, freed = evicted
+            self._full_sig.pop(key, None)
             self._full_bytes -= freed
 
     def _trim_preview(self):
@@ -322,9 +399,11 @@ class ImageLoader(QObject):
             return
         sizes = {k: self._pm_bytes(v) for k, v in self._preview.items()}
         while self._preview_bytes > PREVIEW_CACHE_BYTES:
-            freed = self._evict_one(self._preview, sizes, self._protected)
-            if freed is None:
+            evicted = self._evict_one(self._preview, sizes, self._protected)
+            if evicted is None:
                 break
+            key, freed = evicted
+            self._preview_sig.pop(key, None)
             self._preview_bytes -= freed
 
     def shutdown(self):

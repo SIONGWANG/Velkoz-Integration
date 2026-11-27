@@ -2,6 +2,23 @@
 
 本文件记录 Velkoz-Integration（审视之眼pro）的版本变更。
 
+## v1.24.8 — 图片查看器色彩管理 + 缓存自动刷新
+
+### 修复
+- **不同 ICC 色彩空间导致查看器色调不一致** (`image_viewer/image_loader.py`, `viewer/image_dock.py`, `disk_io.py`)
+  - 独立查看器：解码后把 Adobe RGB 等非 sRGB 图片统一转换到 sRGB 再显示，预览图和原图都转换。
+  - 悬浮窗：PIL 读取后转 sRGB，并用 `ImageOps.exif_transpose` 修正 EXIF 方向。
+  - 主界面显示图：生成显示缓存时转 sRGB，主界面、悬浮窗、独立查看器颜色保持一致。
+  - 显示缓存版本升到 v2，旧缓存自动重建。
+
+- **图片被外部更新后查看器仍显示旧图** (`image_viewer/image_loader.py`, `image_viewer/window.py`, `viewer/image_dock.py`)
+  - 缓存不再只按路径命中，增加 `mtime_ns + 文件大小` 签名校验。
+  - 切换图片、主程序推送新图集、查看器窗口重新激活时，自动丢弃已变化的缓存并重新加载。
+  - 悬浮窗缓存同样按文件签名失效；网络盘短暂读取失败时保留旧缓存，避免闪空。
+
+### 说明
+- 不修改任何源图，只影响显示与缓存。
+
 ## v1.24.7 — 读取规则改回逐条横排
 
 ### 优化

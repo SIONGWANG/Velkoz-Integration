@@ -23,7 +23,7 @@ import tempfile
 import threading
 import time
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2   # v2：显示图已统一转换到 sRGB，旧缓存需要重建
 DEFAULT_MAX_BYTES = 500 * 1024 * 1024      # 单批次缓存硬上限 500MB
 LOW_SPACE_BYTES = 500 * 1024 * 1024        # 剩余空间低于此值：暂停写新缓存
 TIGHT_SPACE_BYTES = 2 * 1024 * 1024 * 1024  # 剩余空间低于此值：收紧到 100MB

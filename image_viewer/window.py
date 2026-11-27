@@ -6,7 +6,7 @@
 import os
 import time
 
-from PySide6.QtCore import Qt, QRectF, QRect, QSize, QPointF, QPoint
+from PySide6.QtCore import Qt, QRectF, QRect, QSize, QPointF, QPoint, QEvent
 from PySide6.QtGui import QPixmap, QPainter, QKeySequence, QColor, QBrush, QIcon, QAction, QPen, QTransform
 from PySide6.QtWidgets import (
     QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
@@ -1277,6 +1277,26 @@ class ImageViewerWindow(QMainWindow):
         if self.active_panel().image_path == path:
             self.statusBar().showMessage(err or "无法解码图片", 6000)
 
+    def _revalidate_visible(self):
+        """窗口重新获得焦点时，检查当前图片是否被外部工具更新。
+
+        只丢弃文件签名变化的缓存并重新请求；未变化的图片不会重新解码。
+        """
+        try:
+            changed = self._loader.invalidate_changed(self._images)
+        except Exception:
+            return
+        if not changed:
+            return
+        for p in self.panels:
+            if p.image_path in changed:
+                self._loader.request(p.image_path)
+
+    def event(self, e):
+        if e.type() == QEvent.WindowActivate and hasattr(self, "_loader"):
+            self._revalidate_visible()
+        return super().event(e)
+
     def _schedule_prefetch(self):
         """预取活动面板的前后各一张，正常顺序翻图时直接命中缓存。"""
         targets = []
@@ -1587,6 +1607,11 @@ class ImageViewerWindow(QMainWindow):
     def set_images(self, images, current_index=0):
         new_images = list(images or [])
         new_set = set(new_images)
+        # 文件可能被外部工具更新：先按 mtime/size 丢弃旧缓存
+        try:
+            self._loader.invalidate_changed(new_images)
+        except Exception:
+            pass
         # 锁定视图时，换图片集也各自保持当前缩放区域
         self._capture_all_views()
         # 先保存当前图的标注，再丢弃不在新图集中的旧标注（避免内存无限增长）
@@ -1603,7 +1628,13 @@ class ImageViewerWindow(QMainWindow):
         self._reload_panels(int(current_index or 0), capture=False)
 
     def set_current_index(self, index):
-        self._reload_panels(int(index))
+        idx = int(index)
+        if 0 <= idx < len(self._images):
+            try:
+                self._loader.invalidate_changed([self._images[idx]])
+            except Exception:
+                pass
+        self._reload_panels(idx)
 
     # ── 状态栏 ──
     def refresh_status(self):

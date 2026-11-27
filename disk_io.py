@@ -9,7 +9,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageCms
 from io import BytesIO
 
 from utils import (
@@ -211,6 +211,20 @@ def _tag_stale(entry):
     return data, (res + " · 本机缓存") if res else "本机缓存"
 
 
+def _profile_to_srgb(img):
+    """把带 ICC 的图片统一转到 sRGB；无 ICC 或转换失败时原样返回。"""
+    icc = img.info.get("icc_profile")
+    if not icc:
+        return img
+    try:
+        src = ImageCms.ImageCmsProfile(BytesIO(icc))
+        dst = ImageCms.createProfile("sRGB")
+        return ImageCms.profileToProfile(img, src, dst, outputMode="RGB")
+    except Exception:
+        logging.debug("ICC 转 sRGB 失败，按原值显示", exc_info=True)
+        return img
+
+
 def _open_for_display(img_path):
     """快速打开图片用于主界面显示。
 
@@ -236,6 +250,7 @@ def _open_for_display(img_path):
         img = ImageOps.exif_transpose(img)
     except Exception:
         pass
+    img = _profile_to_srgb(img)
     return img, orig_w, orig_h
 
 

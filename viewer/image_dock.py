@@ -10,8 +10,17 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QLabel, QScrollArea
 )
-from PySide6.QtCore import Qt, Signal, QObject, QRunnable, QThreadPool, Slot
+from PySide6.QtCore import Qt, QEvent, Signal, QObject, QRunnable, QThreadPool, Slot
 from PySide6.QtGui import QPixmap, QImage
+
+
+def _file_sig(path):
+    """文件签名：mtime_ns + 大小；失败返回 None（网络抖动时保留旧缓存）。"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
 
 
 class DockSignals(QObject):
@@ -49,26 +58,29 @@ class ImageLoader(QRunnable):
             self.signals.log_message.emit(f"加载错误: {e}")
 
     def _load_with_pil(self):
-        """用PIL加载，自动修复EXIF旋转"""
+        """用PIL加载，修复EXIF旋转并把 ICC 统一转到 sRGB。"""
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps, ImageCms
             from io import BytesIO
             img = Image.open(self.path)
+            icc = img.info.get("icc_profile")
             try:
-                exif = img._getexif()
-                if exif:
-                    orientation = exif.get(274)
-                    if orientation in (3, 6, 8):
-                        rotate_map = {3: 180, 6: 270, 8: 90}
-                        img = img.rotate(rotate_map[orientation], expand=True)
-            except:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
                 pass
+            if icc:
+                try:
+                    src = ImageCms.ImageCmsProfile(BytesIO(icc))
+                    dst = ImageCms.createProfile("sRGB")
+                    img = ImageCms.profileToProfile(img, src, dst, outputMode="RGB")
+                except Exception:
+                    pass
             buf = BytesIO()
             img.save(buf, format='PNG')
             qimg = QImage.fromData(buf.getvalue())
             if not qimg.isNull():
                 return QPixmap.fromImage(qimg)
-        except:
+        except Exception:
             pass
         return QPixmap()
 
@@ -95,6 +107,7 @@ class ImageDock(QMainWindow):
         self.image_labels = []
         self.current_images = []
         self.image_cache = OrderedDict()  # LRU缓存
+        self.image_sigs = {}              # path -> (mtime_ns, size)
         self.cache_max = 50
         self.settings_file = os.path.join(os.path.expanduser('~'), '.imagedock_settings.json')
         self.layout_mode = 'vertical'  # vertical / horizontal
@@ -213,6 +226,24 @@ class ImageDock(QMainWindow):
             self.signals.log_message.emit(f"收到: {sample_id} ({current_index}/{total})")
             self.signals.load_images.emit(images)
 
+    def _revalidate_images(self):
+        """窗口重新激活时检查当前图片是否被外部更新，变化则重新加载。"""
+        changed = []
+        for i, path in enumerate(self.current_images):
+            sig = _file_sig(path)
+            if (path in self.image_cache and sig is not None
+                    and self.image_sigs.get(path) != sig):
+                self.image_cache.pop(path, None)
+                self.image_sigs.pop(path, None)
+                changed.append((i, path))
+        for i, path in changed:
+            self.thread_pool.start(ImageLoader(i, path, self.signals, self.image_cache))
+
+    def event(self, e):
+        if e.type() == QEvent.WindowActivate:
+            self._revalidate_images()
+        return super().event(e)
+
     def _load_images(self, images):
         """加载图片列表"""
         # 清除旧内容
@@ -224,6 +255,13 @@ class ImageDock(QMainWindow):
                 w.deleteLater()
 
         self.current_images = images
+
+        # 文件被外部更新时，按 mtime/size 丢弃旧缓存
+        for p in images:
+            sig = _file_sig(p)
+            if p in self.image_cache and sig is not None and self.image_sigs.get(p) != sig:
+                self.image_cache.pop(p, None)
+                self.image_sigs.pop(p, None)
 
         # 检查缓存命中数量
         cached_count = sum(1 for p in images if p in self.image_cache)
@@ -277,8 +315,10 @@ class ImageDock(QMainWindow):
             if index < len(self.current_images):
                 path = self.current_images[index]
                 self.image_cache[path] = pixmap
+                self.image_sigs[path] = _file_sig(path)
                 if len(self.image_cache) > self.cache_max:
-                    self.image_cache.popitem(last=False)
+                    old_path, _ = self.image_cache.popitem(last=False)
+                    self.image_sigs.pop(old_path, None)
             self._show_image(index, pixmap)
 
         if index == len(self.current_images) - 1:
